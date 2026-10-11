@@ -4,3 +4,45 @@
 @media(max-width:1180px){.chat-layout{grid-template-columns:minmax(0,1fr) 265px;gap:15px;padding-left:20px;padding-right:18px}.team-rail{gap:10px}.rail-card{padding:13px}.suggestion-grid{grid-template-columns:1fr;max-width:440px;margin-left:auto;margin-right:auto}.suggestion-card{padding:10px}.welcome-panel{margin-top:1vh}.welcome-orb{width:60px;height:60px;margin-bottom:15px}.welcome-panel h2{font-size:34px}}
 @media(max-width:900px){.sidebar{width:72px;flex-basis:72px;padding:18px 9px 12px}.brand-row{padding:0 9px 22px}.brand-row>div:nth-child(2),.new-chat-button span:nth-child(2),.new-chat-button kbd,.nav-label,.nav-item:not(.active),.sidebar-section,.connection-line span:last-child,.user-meta,.online-dot{display:none}.new-chat-button{justify-content:center;padding:12px}.nav-item{font-size:0;justify-content:center;padding:12px}.nav-icon{font-size:17px}.user-card{justify-content:center}.chat-layout{grid-template-columns:minmax(0,1fr);padding:0 18px 10px}.team-rail{display:none}.conversation-heading{padding-top:18px}.topbar{padding:0 18px}.global-footer{padding:0 18px}.suggestion-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.suggestion-card{flex-direction:column}.suggestion-arrow{display:none}}
 @media(max-width:600px){.sidebar{width:55px;flex-basis:55px;padding:15px 5px}.brand-row{padding:0 6px 20px}.brand-mark{width:30px;height:30px}.sidebar-toggle{display:none}.topbar{height:54px;flex-basis:54px;padding:0 12px}.backend-chip{display:none}.chat-layout{padding:0 10px 8px}.conversation-heading{padding:15px 2px 12px}.manager-avatar{width:35px;height:35px}.conversation-heading h1{font-size:15px}.conversation-heading p{font-size:10px;max-width:220px;line-height:1.4}.heading-actions .outline-button:nth-child(2){display:none}.message-scroll{padding-right:3px}.welcome-panel{margin-top:2vh;padding:8px 4px}.welcome-panel h2{font-size:32px}.welcome-panel>p{font-size:11px}.suggestion-grid{grid-template-columns:1fr;max-width:330px;margin-top:17px}.suggestion-card{flex-direction:row}.suggestion-arrow{display:block}.composer-wrap{padding-top:8px}.composer-hint{max-width:60%;font-size:9px}.shortcut-hint{display:none}.privacy-note{font-size:8px}.global-footer{font-size:7px;padding:0 10px}.secondary-view{padding:17px 12px}.page-intro{align-items:flex-start;flex-direction:column}.page-intro h1{font-size:25px}.playground-layout{grid-template-columns:1fr}.project-panel{max-height:240px}.file-browser{grid-template-columns:130px minmax(0,1fr)}.file-content pre{font-size:10px;padding:10px}.panel-heading{padding:13px}.activity-list{padding:5px 12px}.reading-indicator{bottom:1px}}
+
+/* Live workflow timeline and visible agent/group conversations */
+.chat-group-label{padding:15px 9px 7px;color:var(--subtle);font-size:9px;letter-spacing:1.2px;font-weight:800;display:flex;justify-content:space-between;align-items:center}
+.workflow-group-label{margin-top:7px;border-top:1px solid var(--line-soft);padding-top:15px}
+.workflow-group-label span{font-size:9px;letter-spacing:0;background:var(--panel-2);border:1px solid var(--line);padding:2px 6px;border-radius:5px}
+.chat-list-empty{font-size:10px;color:var(--subtle);line-height:1.5;padding:7px 10px 10px}
+.workflow-chat-item .chat-item-icon{background:#75aaff17;color:#75aaff}
+.workflow-chat-item .chat-item-copy small{color:#8192b4}
+.live-activity-heading{display:flex;align-items:center;gap:8px;margin:17px 0 8px;padding-top:13px;border-top:1px solid var(--line-soft);font-size:10px}
+.live-activity-heading strong{font-size:10px}
+.live-activity-heading>span:last-child{margin-left:auto;color:var(--subtle);font-size:9px}
+.live-pulse{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 #65d6a260;animation:livePulse 1.8s infinite}
+@keyframes livePulse{70%{box-shadow:0 0 0 6px #65d6a200}100%{box-shadow:0 0 0 0 #65d6a200}}
+.live-activity-list{display:flex;flex-direction:column;gap:0;max-height:290px;overflow:auto;scrollbar-width:thin;scrollbar-color:#3a4053 transparent}
+.live-empty{font-size:10px;line-height:1.6;color:var(--subtle);padding:8px 0}
+.live-event{display:flex;gap:8px;padding:9px 0;border-bottom:1px solid var(--line-soft)}
+.live-event:last-child{border-bottom:0}
+.live-event-marker{width:20px;height:20px;flex:0 0 20px;border-radius:6px;display:grid;place-items:center;background:#8174f21a;color:#b7acff;font-size:11px;font-weight:800}
+.live-event.live-done .live-event-marker{background:#65d6a21a;color:var(--green)}
+.live-event.live-blocked .live-event-marker{background:#ff8f9a1a;color:var(--red)}
+.live-event-copy{min-width:0;flex:1}
+.live-event-copy>div{display:flex;justify-content:space-between;align-items:baseline;gap:7px}
+.live-event-copy strong{font-size:10px}
+.live-event-copy small{font-size:8px;color:var(--subtle);text-align:right}
+.live-event-copy p{font-size:9px;line-height:1.55;color:var(--muted);margin:4px 0;overflow-wrap:anywhere}
+.live-event-copy time{font-size:8px;color:var(--subtle)}
+.stage-state{margin-left:auto;font-size:7px;letter-spacing:.4px;color:var(--subtle);border:1px solid var(--line);padding:3px 4px;border-radius:4px;white-space:nowrap}
+.pipeline-step{min-width:0}
+.pipeline-step>div{flex:1;min-width:0}
+.pipeline-step.stage-working .step-marker{border-color:#8e80ff;background:#8e80ff2b;color:#c4bbff;animation:workingGlow 1.5s infinite}
+.pipeline-step.stage-done .step-marker{border-color:#65d6a255;background:#65d6a21b;color:var(--green)}
+.pipeline-step.stage-blocked .step-marker{border-color:#ff8f9a55;background:#ff8f9a1b;color:var(--red)}
+.stage-state.working{color:#b8adff;border-color:#8e80ff55}
+.stage-state.done{color:var(--green);border-color:#65d6a244}
+.stage-state.blocked{color:var(--red);border-color:#ff8f9a44}
+@keyframes workingGlow{50%{box-shadow:0 0 0 4px #8e80ff12}}
+@media(max-width:900px){.live-activity-list{max-height:210px}.team-rail{display:flex;max-height:250px}.workflow-card{display:none}}
+@media(max-width:600px){.team-rail{display:none}.chat-group-label{padding-left:7px}.chat-list-empty{font-size:9px}}
+
+.live-event.live-working .live-event-marker{background:#8e80ff20;color:#b8adff}
+.mini-spinner{display:block;width:9px;height:9px;border:1.5px solid #8e80ff45;border-top-color:#b8adff;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}

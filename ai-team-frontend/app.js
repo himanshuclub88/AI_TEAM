@@ -15,8 +15,15 @@ const state = {
   currentView: 'chat',
   sending: false,
   pollingTimer: null,
+  activityTimer: null,
   lastActivitySignature: '',
   loadingMessages: false,
+  loadingActivity: false,
+  tasks: [],
+  workflowChats: [],
+  activeChatIsWorkflow: false,
+  activeRequestChatId: null,
+  lastSeenWorkflowMessageIds: new Set(),
   userHasScrolledUp: false,
   newMessagesWaiting: false,
   knownMessageIds: new Set(),
@@ -192,14 +199,28 @@ function renderMessages(messages, options = {}) {
 }
 function renderChats() {
   const list = $('#chatList');
-  const chats = state.chats.filter(chat => !chat.workflow_chat && chat.chat_type !== 'group' || (!chat.workflow_chat && chat.participant_ids?.length === 1));
-  if (!chats.length) {
-    list.innerHTML = '<div class="empty-small">No conversations yet.<br>Start one with New conversation.</div>';
-    return;
-  }
-  list.innerHTML = chats.map(chat => `<div class="chat-item ${chat.id === state.activeChatId ? 'selected' : ''}" data-chat-id="${escapeHtml(chat.id)}" role="button" tabindex="0">
-    <div class="chat-item-icon">◈</div><div class="chat-item-copy"><strong>${escapeHtml(chat.title || 'Untitled chat')}</strong><small>${escapeHtml(chat.chat_type || 'chat')}</small></div><span class="chat-arrow">›</span>
-  </div>`).join('');
+  const personal = state.chats.filter(chat =>
+    !chat.workflow_chat && (chat.chat_type !== 'group' || chat.participant_ids?.length === 1)
+  );
+  const workflows = state.chats.filter(chat => chat.workflow_chat || (chat.chat_type === 'group' && chat.participant_ids?.length > 1));
+  const chatMarkup = chat => {
+    const workflow = Boolean(chat.workflow_chat || chat.chat_type === 'group');
+    const subtitle = workflow
+      ? `${(chat.participant_ids || []).length} team members · transcript`
+      : (chat.chat_type || 'chat');
+    return `<div class="chat-item ${chat.id === state.activeChatId ? 'selected' : ''} ${workflow ? 'workflow-chat-item' : ''}"
+        data-chat-id="${escapeHtml(chat.id)}" data-workflow-chat="${workflow ? 'true' : 'false'}" role="button" tabindex="0">
+      <div class="chat-item-icon">${workflow ? '⇄' : '◈'}</div>
+      <div class="chat-item-copy"><strong>${escapeHtml(chat.title || 'Untitled chat')}</strong><small>${escapeHtml(subtitle)}</small></div>
+      <span class="chat-arrow">${workflow ? '↗' : '›'}</span>
+    </div>`;
+  };
+  list.innerHTML = `
+    <div class="chat-group-label">MANAGER CHATS</div>
+    ${personal.length ? personal.map(chatMarkup).join('') : '<div class="chat-list-empty">No Manager chats yet.</div>'}
+    <div class="chat-group-label workflow-group-label">TEAM WORKFLOWS <span>${workflows.length}</span></div>
+    ${workflows.length ? workflows.map(chatMarkup).join('') : '<div class="chat-list-empty">Workflow conversations appear when a build starts.</div>'}
+  `;
 }
 async function loadChats(preferredId = null) {
   const chats = await api('/chats');
@@ -228,12 +249,14 @@ async function createNewChat() {
   });
   state.chats.unshift(chat);
   state.activeChatId = chat.id;
+  state.activeChatIsWorkflow = false;
   state.messages = [];
   state.knownMessageIds = new Set();
   $('#messages').innerHTML = '';
   $('#welcomePanel').classList.remove('hidden');
   renderChats();
   renderMessages([], { forceBottom: true });
+  updateComposerForChat();
   showView('chat');
   $('#messageInput').focus();
   return chat;
@@ -244,6 +267,8 @@ async function selectChat(chatId) {
     return;
   }
   state.activeChatId = chatId;
+  state.activeChatIsWorkflow = Boolean(state.chats.find(chat => chat.id === chatId)?.workflow_chat ||
+    state.chats.find(chat => chat.id === chatId)?.chat_type === 'group');
   state.messages = [];
   state.knownMessageIds = new Set();
   $('#messages').innerHTML = '';
@@ -251,7 +276,23 @@ async function selectChat(chatId) {
   $('#messageScroll').scrollTop = 0;
   renderChats();
   showView('chat');
+  updateComposerForChat();
   await loadMessages({ forceBottom: true });
+}
+function updateComposerForChat() {
+  const input = $('#messageInput');
+  const button = $('#sendButton');
+  if (state.activeChatIsWorkflow) {
+    input.placeholder = 'This is a read-only team transcript. Return to a Manager chat to send a request.';
+    input.disabled = true;
+    button.disabled = true;
+    $('#conversationSubtitle').textContent = 'Read-only workflow transcript · inspect agent handoffs and results.';
+  } else {
+    input.placeholder = 'Message the Manager…  (Enter to send, Shift + Enter for a new line)';
+    input.disabled = state.sending;
+    button.disabled = state.sending;
+    $('#conversationSubtitle').textContent = 'One message to the Manager. The team handles the rest.';
+  }
 }
 async function loadMessages(options = {}) {
   if (!state.activeChatId || state.loadingMessages) return;
@@ -272,6 +313,10 @@ async function loadMessages(options = {}) {
 async function sendMessage(text) {
   const content = text.trim();
   if (!content || state.sending) return;
+  if (state.activeChatIsWorkflow) {
+    toast('Team workflow chats are read-only. Select a Manager chat to send a request.');
+    return;
+  }
   if (!state.activeChatId) await createNewChat();
   state.sending = true;
   $('#sendButton').disabled = true;
@@ -387,6 +432,95 @@ async function readProjectFile(path) {
     $('#fileContent').textContent = `Could not read this file.\n${error.message}`;
   }
 }
+function taskStage(task) {
+  const id = task.assigned_to || '';
+  if (id === 'manager') return 'manager';
+  if (id === 'researcher') return 'researcher';
+  if (id === 'architect') return 'architect';
+  if (id.includes('developer')) return 'frontend_developer';
+  if (id === 'tester') return 'tester';
+  return null;
+}
+function stageStatus(stage, tasks) {
+  const relevant = tasks.filter(task => taskStage(task) === stage);
+  if (!relevant.length) return { label: 'WAITING', className: '' };
+  if (relevant.some(task => ['blocked', 'failed'].includes(String(task.status).toLowerCase()))) return { label: 'BLOCKED', className: 'blocked' };
+  if (relevant.some(task => ['pending', 'in_progress', 'accepted', 'running'].includes(String(task.status).toLowerCase()))) return { label: 'WORKING', className: 'working' };
+  if (relevant.every(task => ['completed', 'done'].includes(String(task.status).toLowerCase()))) return { label: 'DONE', className: 'done' };
+  return { label: String(relevant[relevant.length - 1].status || 'WAITING').toUpperCase(), className: '' };
+}
+function renderPipeline(tasks) {
+  const stages = ['manager', 'researcher', 'architect', 'frontend_developer', 'tester'];
+  stages.forEach(stage => {
+    const row = $(`#pipelineSteps [data-stage="${stage}"]`);
+    if (!row) return;
+    const status = stageStatus(stage, tasks);
+    row.classList.remove('stage-working', 'stage-done', 'stage-blocked');
+    if (status.className) row.classList.add(`stage-${status.className}`);
+    const badge = row.querySelector('.stage-state');
+    if (badge) {
+      badge.textContent = status.label;
+      badge.className = `stage-state ${status.className}`;
+    }
+  });
+}
+async function refreshWorkflowActivity() {
+  if (state.loadingActivity) return;
+  state.loadingActivity = true;
+  try {
+    // Refresh the persisted workflow chat list and task states while the build request is still running.
+    const [chats, tasks] = await Promise.all([api('/chats'), api('/tasks')]);
+    state.chats = Array.isArray(chats) ? chats : state.chats;
+    state.tasks = Array.isArray(tasks) ? tasks : [];
+    state.workflowChats = state.chats.filter(chat => chat.workflow_chat || (chat.chat_type === 'group' && chat.participant_ids?.length > 1));
+    renderChats();
+    renderPipeline(state.tasks);
+
+    const transcripts = [];
+    for (const chat of state.workflowChats.slice(0, 12)) {
+      try {
+        const messages = await api(`/chats/${encodeURIComponent(chat.id)}/messages`);
+        for (const message of messages || []) {
+          if (message.message_type === 'system') continue;
+          transcripts.push({ ...message, workflowTitle: chat.title || chat.id, workflowId: chat.id });
+        }
+      } catch { /* one transcript may not be readable yet */ }
+    }
+    transcripts.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+    const latest = transcripts.slice(-24);
+    const pendingTasks = state.tasks.filter(task => ['pending', 'in_progress', 'accepted', 'running'].includes(String(task.status).toLowerCase()));
+    const signature = latest.map(item => `${item.id}:${item.content}`).join('|') + '|' + state.tasks.map(t => `${t.id}:${t.status}`).join('|');
+    $('#liveActivityStatus').textContent = pendingTasks.length ? 'Working now' : 'Live';
+    if (signature !== state.lastActivitySignature) {
+      state.lastActivitySignature = signature;
+      const activity = $('#liveActivityList');
+      const pendingMarkup = pendingTasks.map(task => {
+        const sender = roleNames[task.assigned_to] || task.assigned_to || 'Agent';
+        return `<div class="live-event live-working">
+          <span class="live-event-marker"><span class="mini-spinner"></span></span>
+          <div class="live-event-copy"><div><strong>${escapeHtml(sender)} · Working</strong><small>Live task</small></div>
+            <p>${escapeHtml(shortText(task.title || task.description || 'Working on assigned task', 180))}</p><time>Started ${escapeHtml(timeLabel(task.created_at))}</time></div>
+        </div>`;
+      });
+      const historyMarkup = latest.slice().reverse().map(item => {
+        const sender = roleNames[item.sender_id] || item.sender_id || 'Agent';
+        const status = item.metadata?.error ? 'blocked' : (item.message_type === 'task_result' ? 'done' : '');
+        return `<div class="live-event ${status ? `live-${status}` : ''}">
+          <span class="live-event-marker">${item.metadata?.error ? '!' : (item.message_type === 'task_result' ? '✓' : '·')}</span>
+          <div class="live-event-copy"><div><strong>${escapeHtml(sender)}</strong><small>${escapeHtml(item.workflowTitle)}</small></div>
+            <p>${escapeHtml(shortText(item.content, 180))}</p><time>${escapeHtml(timeLabel(item.created_at))}</time></div>
+        </div>`;
+      });
+      activity.innerHTML = pendingMarkup.concat(historyMarkup).join('') || '<div class="live-empty">No workflow events yet. Start a build to watch the team.</div>';
+    }
+    // If a workflow transcript is currently open, refresh it too without stealing the user's scroll.
+    if (state.activeChatIsWorkflow && state.activeChatId) await loadMessages({ silent: true });
+  } catch (error) {
+    $('#liveActivityStatus').textContent = 'Reconnecting';
+  } finally {
+    state.loadingActivity = false;
+  }
+}
 async function loadActivity() {
   $('#activityList').innerHTML = '<div class="empty-small">Loading activity…</div>';
   try {
@@ -492,14 +626,13 @@ async function boot() {
     setNotice(`Cannot reach the backend at ${API_BASE}. Start your FastAPI server on port 8081, then refresh this page. Details: ${error.message}`);
     $('#chatList').innerHTML = '<div class="empty-small">Backend is offline.<br>Start the API and refresh.</div>';
   }
-  // Poll quietly for new messages, but never steal scroll position while the user is reading.
+  // Live refresh: workflow chats/tasks are persisted during the synchronous build request.
+  // Polling these endpoints lets the UI show agent handoffs before the final Manager reply arrives.
   state.pollingTimer = setInterval(async () => {
-    try {
-      await checkHealth();
-      if (state.currentView === 'chat' && state.activeChatId) {
-        await loadMessages({ silent: true });
-      }
-    } catch { /* health indicator reflects availability */ }
-  }, 5000);
+    await checkHealth();
+    if (state.currentView === 'chat' && state.activeChatId) await loadMessages({ silent: true });
+  }, 2200);
+  state.activityTimer = setInterval(refreshWorkflowActivity, 1800);
+  refreshWorkflowActivity();
 }
 boot();
