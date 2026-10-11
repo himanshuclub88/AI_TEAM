@@ -1,1 +1,58 @@
-[]
+[
+  {
+    "id": "chat_256dae4c52a6",
+    "title": "buildtodo",
+    "chat_type": "individual",
+    "participant_ids": [
+      "manager"
+    ],
+    "created_at": "2026-10-11T16:51:29.816546Z",
+    "updated_at": "2026-10-11T16:56:43.990146+00:00"
+  },
+  {
+    "id": "chat_57fc4a0ee720",
+    "title": "Research · Create a simple todo list webapp",
+    "chat_type": "group",
+    "participant_ids": [
+      "manager",
+      "researcher"
+    ],
+    "created_at": "2026-10-11T16:51:42.862164Z",
+    "updated_at": "2026-10-11T16:51:51.079571+00:00",
+    "workflow_key": "chat_256dae4c52a6:create-a-simple-todo-list-webapp",
+    "workflow_chat": true,
+    "project_id": "create-a-simple-todo-list-webapp"
+  },
+  {
+    "id": "chat_d1b5fad3c55b",
+    "title": "Architecture · Create a simple todo list webapp",
+    "chat_type": "group",
+    "participant_ids": [
+      "manager",
+      "researcher",
+      "architect"
+    ],
+    "created_at": "2026-10-11T16:51:42.886594Z",
+    "updated_at": "2026-10-11T16:52:05.849642+00:00",
+    "workflow_key": "chat_256dae4c52a6:create-a-simple-todo-list-webapp",
+    "workflow_chat": true,
+    "project_id": "create-a-simple-todo-list-webapp"
+  },
+  {
+    "id": "chat_a59489f4c0bb",
+    "title": "Development · Create a simple todo list webapp",
+    "chat_type": "group",
+    "participant_ids": [
+      "manager",
+      "architect",
+      "frontend_developer",
+      "backend_developer",
+      "tester"
+    ],
+    "created_at": "2026-10-11T16:51:42.906987Z",
+    "updated_at": "2026-10-11T16:56:43.953048+00:00",
+    "workflow_key": "chat_256dae4c52a6:create-a-simple-todo-list-webapp",
+    "workflow_chat": true,
+    "project_id": "create-a-simple-todo-list-webapp"
+  }
+]
