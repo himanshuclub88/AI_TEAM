@@ -13,7 +13,6 @@ const state = {
   projectFiles: [],
   activeFilePath: null,
   currentView: 'chat',
-  activityMode: 'events',
   sending: false,
   pollingTimer: null,
   activityTimer: null,
@@ -178,16 +177,27 @@ function renderMessages(messages, options = {}) {
     const id = String(message.id);
     let node = container.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
     const markup = messageMarkup(message);
+    const signature = JSON.stringify([
+      message.sender_id || 'manager', message.message_type || 'chat', message.content || '',
+      message.created_at || message.timestamp || '', message.task_id ?? null, message.metadata ?? {}
+    ]);
     if (!node) {
       const wrapper = document.createElement('div');
       wrapper.innerHTML = markup;
       node = wrapper.firstElementChild;
+      node.__renderSignature = signature;
       container.append(node);
     } else {
-      const temp = document.createElement('div');
-      temp.innerHTML = markup;
-      const fresh = temp.firstElementChild;
-      if (node.innerHTML !== fresh.innerHTML || node.className !== fresh.className) {
+      // Comparing innerHTML is not safe for <details>: opening "Inspect saved JSON"
+      // changes the reflected `open` attribute, so every poll used to replace the node
+      // and collapse the disclosure. Only replace a message when its saved data changes.
+      if (node.__renderSignature !== signature) {
+        const wasJsonOpen = Boolean(node.querySelector('.message-json')?.open);
+        const temp = document.createElement('div');
+        temp.innerHTML = markup;
+        const fresh = temp.firstElementChild;
+        fresh.__renderSignature = signature;
+        if (wasJsonOpen && fresh.querySelector('.message-json')) fresh.querySelector('.message-json').open = true;
         node.replaceWith(fresh);
       }
     }
@@ -427,6 +437,7 @@ async function loadProjects() {
     if (!state.projects.length) {
       $('#projectList').innerHTML = '<div class="empty-small">No projects yet.<br>Ask the Manager to build something.</div>';
       $('#fileList').innerHTML = '<div class="empty-small">No project selected.</div>';
+      $('#openPreviewButton').disabled = true;
       return;
     }
     $('#projectList').innerHTML = state.projects.map(project => {
@@ -455,6 +466,7 @@ async function selectProject(projectId) {
   $('#currentFileName').textContent = 'No file selected';
   try {
     state.projectFiles = await api(`/projects/${encodeURIComponent(projectId)}/files`) || [];
+    $('#openPreviewButton').disabled = !projectHasIndexHtml(projectId);
     $('#fileCount').textContent = `${state.projectFiles.length} files`;
     if (!state.projectFiles.length) {
       $('#fileList').innerHTML = '<div class="empty-small">This project has no visible files.</div>';
@@ -467,6 +479,7 @@ async function selectProject(projectId) {
     const firstPath = typeof state.projectFiles[0] === 'string' ? state.projectFiles[0] : (state.projectFiles[0].path || state.projectFiles[0].name);
     await readProjectFile(firstPath);
   } catch (error) {
+    $('#openPreviewButton').disabled = true;
     $('#fileList').innerHTML = `<div class="empty-small">Couldn't load files.<br>${escapeHtml(error.message)}</div>`;
   }
 }
@@ -487,6 +500,98 @@ async function readProjectFile(path) {
     $('#fileContent').textContent = `Could not read this file.\n${error.message}`;
   }
 }
+function projectHasIndexHtml(projectId = state.activeProjectId) {
+  if (!projectId) return false;
+  return state.projectFiles.some(file => {
+    const path = typeof file === 'string' ? file : (file.path || file.name || '');
+    return String(path).replaceAll('\\', '/').toLowerCase() === 'index.html';
+  });
+}
+function safeProjectRelativePath(value) {
+  const path = String(value || '').split(/[?#]/, 1)[0].replaceAll('\\', '/').replace(/^\.\//, '');
+  if (!path || path.startsWith('/') || /^[a-z]+:/i.test(path)) return null;
+  const parts = [];
+  for (const part of path.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') { if (!parts.length) return null; parts.pop(); }
+    else parts.push(part);
+  }
+  return parts.join('/') || null;
+}
+async function getProjectText(projectId, path) {
+  const result = await api(`/projects/${encodeURIComponent(projectId)}/file?path=${encodeURIComponent(path)}`);
+  if (typeof result?.content !== 'string') throw new Error(`Could not read ${path}`);
+  return result.content;
+}
+async function openProjectPreview() {
+  const projectId = state.activeProjectId;
+  if (!projectId || !projectHasIndexHtml(projectId)) {
+    toast('This project does not contain a root index.html file.');
+    return;
+  }
+  // Open the tab synchronously from the click so popup blockers do not suppress it.
+  const previewWindow = window.open('about:blank', '_blank');
+  if (!previewWindow) {
+    toast('Your browser blocked the new tab. Allow pop-ups for this local app.', 'error');
+    return;
+  }
+  previewWindow.document.title = 'Loading project preview…';
+  previewWindow.document.body.innerHTML = '<p style="font:16px sans-serif;padding:24px">Loading project preview…</p>';
+  try {
+    const html = await getProjectText(projectId, 'index.html');
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const warnings = [];
+
+    // The backend currently exposes project files as text through /projects/{id}/file.
+    // Inline relative CSS and JavaScript in the new tab so a file:// or blob URL is not needed.
+    for (const link of [...parsed.querySelectorAll('link[rel~="stylesheet"][href]')]) {
+      const href = link.getAttribute('href') || '';
+      if (/^(https?:|data:|\/\/|#)/i.test(href)) continue;
+      const assetPath = safeProjectRelativePath(href);
+      if (!assetPath) { warnings.push(`Could not resolve stylesheet: ${href}`); continue; }
+      try {
+        const css = await getProjectText(projectId, assetPath);
+        const style = parsed.createElement('style');
+        style.textContent = css;
+        link.replaceWith(style);
+      } catch { warnings.push(`Could not load stylesheet: ${assetPath}`); }
+    }
+    for (const script of [...parsed.querySelectorAll('script[src]')]) {
+      const src = script.getAttribute('src') || '';
+      if (/^(https?:|data:|\/\/)/i.test(src)) continue;
+      if ((script.getAttribute('type') || '').toLowerCase() === 'module') {
+        warnings.push(`Module script left linked (relative imports may not work): ${src}`);
+        continue;
+      }
+      const assetPath = safeProjectRelativePath(src);
+      if (!assetPath) { warnings.push(`Could not resolve script: ${src}`); continue; }
+      try {
+        const code = await getProjectText(projectId, assetPath);
+        script.removeAttribute('src');
+        script.textContent = code;
+      } catch { warnings.push(`Could not load script: ${assetPath}`); }
+    }
+    // Keep preview actions scoped to the new tab; never execute arbitrary shell commands.
+    if (warnings.length) {
+      const notice = parsed.createElement('div');
+      notice.style.cssText = 'margin:0;padding:8px 12px;background:#fff3cd;color:#503d00;font:12px sans-serif';
+      notice.textContent = `Preview note: ${warnings.join(' · ')}`;
+      parsed.body.prepend(notice);
+    }
+    previewWindow.document.open();
+    previewWindow.document.write('<!doctype html>\n' + parsed.documentElement.outerHTML);
+    previewWindow.document.close();
+    previewWindow.document.title = parsed.title || 'Project preview';
+  } catch (error) {
+    previewWindow.document.body.innerHTML = '';
+    const message = previewWindow.document.createElement('pre');
+    message.style.cssText = 'font:14px/1.6 monospace;white-space:pre-wrap;padding:24px;color:#b91c1c';
+    message.textContent = `Could not open preview\n${error.message}`;
+    previewWindow.document.body.append(message);
+    toast(`Preview failed: ${error.message}`, 'error');
+  }
+}
+
 function taskStage(task) {
   const id = task.assigned_to || '';
   if (id === 'manager') return 'manager';
@@ -590,31 +695,9 @@ async function refreshWorkflowActivity() {
     state.loadingActivity = false;
   }
 }
-async function loadActivity(mode = state.activityMode) {
-  state.activityMode = mode;
-  $('#activityEventsButton')?.classList.toggle('active', mode === 'events');
-  $('#activityCallsButton')?.classList.toggle('active', mode === 'calls');
-  const heading = $('#activityList');
-  heading.innerHTML = `<div class="empty-small">Loading ${mode === 'calls' ? 'model calls' : 'activity'}…</div>`;
+async function loadActivity() {
+  $('#activityList').innerHTML = '<div class="empty-small">Loading activity…</div>';
   try {
-    if (mode === 'calls') {
-      const calls = await api('/llm-calls?limit=50');
-      const items = Array.isArray(calls) ? calls : [];
-      $('#activityCount').textContent = `${items.length} model calls`;
-      heading.innerHTML = items.length ? items.map(call => {
-        const agent = roleNames[call.agent_id] || call.agent_name || call.agent_id || 'Agent';
-        const response = call.validated_response ?? call.adapter_response ?? call.error ?? null;
-        const json = {call_id: call.call_id, agent_id: call.agent_id, agent_name: call.agent_name, configured_agent_model: call.configured_agent_model, runtime_model: call.runtime_model, chat_id: call.chat_id, started_at: call.started_at, finished_at: call.finished_at, duration_ms: call.duration_ms, status: call.status, request: call.request, response, error: call.error ?? null};
-        return `<article class="model-call-item ${call.status === 'error' ? 'model-call-error' : ''}">
-          <div class="model-call-head"><div><strong>${escapeHtml(agent)}</strong><small>${escapeHtml(call.runtime_model || call.configured_agent_model || 'Configured model unavailable')}</small></div><span class="model-call-status ${call.status === 'error' ? 'error' : 'success'}">${escapeHtml((call.status || 'unknown').toUpperCase())}</span></div>
-          <p>${escapeHtml(shortText(call.request?.messages?.at(-1)?.content || call.request?.system_prompt || 'Model request', 240))}</p>
-          <div class="model-call-meta"><span>${escapeHtml(dateLabel(call.started_at))}</span><span>${Number.isFinite(Number(call.duration_ms)) ? `${Math.round(Number(call.duration_ms))} ms` : 'Duration unavailable'}</span><span>${escapeHtml(call.call_id || '')}</span></div>
-          <details class="message-json"><summary>Inspect full request and response JSON</summary><pre>${escapeHtml(JSON.stringify(json, null, 2))}</pre></details>
-        </article>`;
-      }).join('') : '<div class="empty-small">No model-call records yet. New calls will appear after the backend logging patch is installed.</div>';
-      return;
-    }
-
     const chats = await api('/chats');
     const all = [];
     for (const chat of (chats || []).slice(0, 35)) {
@@ -628,13 +711,12 @@ async function loadActivity(mode = state.activityMode) {
     $('#activityCount').textContent = `${events.length} events`;
     $('#activityList').innerHTML = events.length ? events.map(message => {
       const sender = roleNames[message.sender_id] || message.sender_id || 'Agent';
-      return `<div class="activity-item"><div class="activity-symbol">${message.sender_id === 'user' ? '↗' : '✦'}</div><div class="activity-copy"><strong>${escapeHtml(sender)} · ${escapeHtml(message.chatTitle)}</strong><p>${escapeHtml(shortText(message.content, 360))}</p><small>${escapeHtml(dateLabel(message.created_at))} · ${escapeHtml((message.message_type || 'chat').replaceAll('_', ' '))}</small><details class="message-json"><summary>Inspect saved JSON</summary><pre>${escapeHtml(JSON.stringify(message, null, 2))}</pre></details></div></div>`;
+      return `<div class="activity-item"><div class="activity-symbol">${message.sender_id === 'user' ? '↗' : '✦'}</div><div class="activity-copy"><strong>${escapeHtml(sender)} · ${escapeHtml(message.chatTitle)}</strong><p>${escapeHtml(shortText(message.content, 360))}</p><small>${escapeHtml(dateLabel(message.created_at))} · ${escapeHtml((message.message_type || 'chat').replaceAll('_', ' '))}</small></div></div>`;
     }).join('') : '<div class="empty-small">No activity yet.</div>';
   } catch (error) {
-    $('#activityList').innerHTML = `<div class="empty-small">Couldn't load ${mode === 'calls' ? 'model calls' : 'activity'}.<br>${escapeHtml(error.message)}</div>`;
+    $('#activityList').innerHTML = `<div class="empty-small">Couldn't load activity.<br>${escapeHtml(error.message)}</div>`;
   }
 }
-
 function initEvents() {
   $('#messageForm').addEventListener('submit', event => {
     event.preventDefault();
@@ -688,6 +770,7 @@ function initEvents() {
   $('#dismissNotice').addEventListener('click', () => setNotice(''));
   $('#clearNoticeButton').addEventListener('click', () => setNotice(''));
   $('#refreshProjects').addEventListener('click', loadProjects);
+  $('#openPreviewButton').addEventListener('click', openProjectPreview);
   $('#projectList').addEventListener('click', event => {
     const item = event.target.closest('[data-project-id]');
     if (item) selectProject(item.dataset.projectId);
@@ -700,9 +783,7 @@ function initEvents() {
     try { await navigator.clipboard.writeText($('#fileContent').textContent); toast('File contents copied.'); }
     catch { toast('Clipboard access is unavailable in this browser.', 'error'); }
   });
-  $('#refreshActivity').addEventListener('click', () => loadActivity());
-  $('#activityEventsButton').addEventListener('click', () => loadActivity('events'));
-  $('#activityCallsButton').addEventListener('click', () => loadActivity('calls'));
+  $('#refreshActivity').addEventListener('click', loadActivity);
   $('#themeToggle').addEventListener('click', () => {
     document.body.classList.toggle('light-theme');
     state.theme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
