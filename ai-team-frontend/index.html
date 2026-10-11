@@ -1,72 +1,49 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Team</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Team — Workspace</title><link rel="stylesheet" href="style.css">
+  <meta name="theme-color" content="#0b0e13">
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand"><div class="brand-mark">✳</div><div><strong>AI Team</strong><small>Workspace</small></div></div>
-      <button id="newChatBtn" class="new-chat">＋ <span>New chat</span></button>
-      <div class="section-label">YOUR CHATS</div>
-      <div id="chatList" class="chat-list"></div>
-      <div class="sidebar-bottom">
-        <label for="apiBase">Backend URL</label>
-        <input id="apiBase" value="http://127.0.0.1:8000" spellcheck="false">
-        <button id="connectBtn" class="connect-btn">Connect</button>
-        <div id="connectionState" class="connection-state"><span class="status-dot"></span> Not connected</div>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-logo"><span>✳</span></div><div><b>orbit<span class="brand-dot">.</span></b><small>AI TEAM WORKSPACE</small></div><button class="icon-btn sidebar-toggle" id="sidebarToggle" title="Toggle sidebar">☰</button></div>
+    <button class="new-chat" id="newChatBtn"><span class="plus">＋</span><span>New conversation</span><kbd>⌘ K</kbd></button>
+    <div class="nav-label">WORKSPACE</div>
+    <button class="nav-item active" id="homeNav"><span class="nav-glyph">◈</span> Overview <span class="nav-count" id="chatCount">0</span></button>
+    <div class="nav-label nav-label-row"><span>YOUR CHATS</span><button id="refreshBtn" class="mini-icon" title="Refresh">↻</button></div>
+    <div id="chatList" class="chat-list"><div class="sidebar-empty">Your conversations will appear here.</div></div>
+    <div class="sidebar-spacer"></div>
+    <div class="sidebar-status"><span class="pulse-dot" id="connectionDot"></span><div><b id="connectionText">Connecting…</b><small id="connectionSub">Checking backend</small></div><button id="settingsBtn" class="mini-icon" title="Connection settings">⚙</button></div>
+    <div id="settingsPanel" class="settings-panel hidden"><label for="apiBase">Backend URL</label><div class="settings-row"><input id="apiBase" value="http://127.0.0.1:8000" spellcheck="false"><button id="connectBtn">Connect</button></div></div>
+    <div class="profile"><div class="profile-avatar">H</div><div><b>Workspace Admin</b><small>Local environment</small></div><span class="profile-menu">•••</span></div>
+  </aside>
+
+  <main class="main-area">
+    <header class="topbar"><div class="breadcrumbs"><span>Workspace</span><span class="crumb-slash">/</span><b id="breadcrumbTitle">Overview</b></div><div class="topbar-right"><span class="local-pill"><span class="tiny-green"></span> Local workspace</span><button class="icon-btn" id="refreshTop" title="Refresh data">↻</button><div class="top-avatar">H</div></div></header>
+    <div id="errorBanner" class="error-banner hidden"></div>
+    <div id="overview" class="overview-page">
+      <section class="hero"><div class="hero-copy"><div class="eyebrow"><span class="eyebrow-line"></span> YOUR PERSONAL AI TEAM</div><h1>Big ideas, <span>shared work.</span></h1><p>Give your Manager a goal. Watch your agents research, design, build, and test together.</p><div class="hero-actions"><button id="startBuildBtn" class="primary-btn"><span>＋</span> Start a project</button><button id="openManagerBtn" class="secondary-btn">Open Manager <span>↗</span></button></div></div><div class="hero-orbit" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit orbit-three"></div><div class="orbit-core">✳</div><div class="orbit-node node-a">⌕</div><div class="orbit-node node-b">⌘</div><div class="orbit-node node-c">✓</div><div class="orbit-node node-d">◇</div></div></section>
+      <section class="stats-grid"><div class="stat-card"><div class="stat-icon purple">◈</div><div><small>Conversations</small><strong id="statChats">—</strong><span>Saved in workspace</span></div></div><div class="stat-card"><div class="stat-icon green">✳</div><div><small>AI agents</small><strong id="statAgents">—</strong><span>Ready to collaborate</span></div></div><div class="stat-card"><div class="stat-icon blue">↗</div><div><small>Workflow stages</small><strong>4</strong><span>Research to testing</span></div></div><div class="stat-card"><div class="stat-icon amber">◷</div><div><small>Current activity</small><strong id="statActivity">Idle</strong><span id="statActivitySub">Waiting for a request</span></div></div></section>
+      <section class="section-head"><div><div class="eyebrow">GET STARTED</div><h2>What would you like to do?</h2></div><span class="section-note">Pick a starting point</span></section>
+      <section class="action-grid"><button class="action-card" data-prompt="Help me research this idea and identify the main requirements."><div class="action-top"><span class="action-icon research-icon">⌕</span><span class="action-arrow">↗</span></div><b>Explore an idea</b><p>Research requirements, risks, and possible approaches.</p><span class="action-link">Start with research <span>→</span></span></button><button class="action-card" data-prompt="Design a technical architecture for a new application."><div class="action-top"><span class="action-icon architect-icon">◇</span><span class="action-arrow">↗</span></div><b>Design a system</b><p>Turn a concept into a practical architecture and plan.</p><span class="action-link">Plan architecture <span>→</span></span></button><button class="action-card" data-prompt="Build me a calculator app"><div class="action-top"><span class="action-icon build-icon">⌘</span><span class="action-arrow">↗</span></div><b>Build an application</b><p>Coordinate research, development, and a test plan.</p><span class="action-link">Start a build <span>→</span></span></button></section>
+      <section class="recent-section"><div class="section-head recent-head"><div><div class="eyebrow">RECENT ACTIVITY</div><h2>Your workspace</h2></div><button class="text-btn" id="viewChatsBtn">View all chats <span>→</span></button></div><div id="recentChats" class="recent-grid"><div class="loading-card">Loading your saved chats…</div></div></section>
+    </div>
+
+    <div id="chatPage" class="chat-page hidden">
+      <div class="chat-layout">
+        <section class="conversation-panel">
+          <div class="conversation-head"><div class="chat-title-wrap"><div class="chat-type-icon" id="chatTypeIcon">✳</div><div><h1 id="chatTitle">Chat with Manager</h1><p id="chatSubtitle">Your project coordinator</p></div></div><div class="conversation-actions"><span id="runPill" class="run-pill"><span class="tiny-green"></span> Ready</span><button class="icon-btn" id="chatRefreshBtn" title="Refresh chat">↻</button></div></div>
+          <div class="workflow-strip hidden" id="workflowStrip"><div class="workflow-strip-top"><div><span class="eyebrow">PROJECT PIPELINE</span><b id="workflowTitle">Build workflow</b></div><span id="workflowProgressText">Waiting to start</span></div><div class="pipeline-steps"><div class="pipeline-step" data-stage="research"><span class="step-circle">1</span><span>Research</span></div><div class="pipeline-connector"></div><div class="pipeline-step" data-stage="architecture"><span class="step-circle">2</span><span>Architecture</span></div><div class="pipeline-connector"></div><div class="pipeline-step" data-stage="development"><span class="step-circle">3</span><span>Development</span></div><div class="pipeline-connector"></div><div class="pipeline-step" data-stage="testing"><span class="step-circle">4</span><span>Testing</span></div></div></div>
+          <div id="messages" class="messages" aria-live="polite"><div class="empty-conversation"><div class="empty-symbol">✳</div><h2>Start a conversation</h2><p>Tell the Manager what you want to achieve.</p></div></div>
+          <div class="composer-wrap"><div id="workingBanner" class="working-banner hidden"><span class="working-spinner"></span><div><b>Your team is working</b><small id="workingText">Waiting for the first agent update…</small></div><span class="elapsed" id="elapsedTime">00:00</span></div><form id="messageForm" class="composer"><textarea id="messageInput" rows="1" placeholder="Message your Manager…" autocomplete="off"></textarea><div class="composer-bottom"><span><kbd>Enter</kbd> send <span class="dot-separator">·</span> <kbd>Shift + Enter</kbd> new line</span><button id="sendBtn" type="submit"><span id="sendLabel">Send</span><span class="send-arrow">↑</span></button></div></form><div class="composer-footnote"><span>✳</span> Agents may take a few minutes for multi-step tasks. Activity appears here as it is saved.</div></div>
+        </section>
+        <aside class="activity-panel"><div class="panel-title"><div><span class="eyebrow">LIVE MONITOR</span><h2>Team activity</h2></div><span id="activityState" class="activity-state">Standby</span></div><div class="activity-summary"><div class="activity-summary-icon">◷</div><div><b id="activityHeadline">No active workflow</b><p id="activityDescription">Send a project request to start coordinating agents.</p></div></div><div class="panel-section-head"><b>Agent roster</b><span id="rosterCount">0 online</span></div><div id="agentRoster" class="agent-roster"><div class="roster-skeleton"></div><div class="roster-skeleton"></div><div class="roster-skeleton"></div></div><div class="panel-section-head task-section-head"><b>Workflow timeline</b><span id="timelineCount">0 events</span></div><div id="activityTimeline" class="activity-timeline"><div class="timeline-empty">Agent updates will appear here while your request runs.</div></div><div class="panel-bottom"><div class="polling-indicator"><span class="pulse-dot"></span><span>Auto-refreshing activity</span></div><span id="lastUpdated">Waiting for data</span></div></aside>
       </div>
-    </aside>
-
-    <main class="main">
-      <header class="topbar">
-        <div class="mobile-brand">✳ AI Team</div>
-        <div class="chat-heading"><strong id="chatTitle">New chat</strong><span id="chatSubtitle">Choose an agent and start a conversation</span></div>
-        <div class="top-actions">
-          <span class="mode-pill"><span class="status-dot"></span> Local workspace</span>
-        </div>
-      </header>
-
-      <section class="setup-bar">
-        <div class="field">
-          <label for="chatType">Chat type</label>
-          <select id="chatType"><option value="individual">Individual chat</option><option value="group">Group chat</option></select>
-        </div>
-        <div class="field agent-field">
-          <label for="agentSelect">Participants</label>
-          <select id="agentSelect" multiple aria-label="Choose agents"></select>
-          <small id="participantHint">Select one agent for an individual chat.</small>
-        </div>
-        <button id="createChatBtn" class="primary-btn">Create chat</button>
-      </section>
-
-      <section id="welcome" class="welcome">
-        <div class="welcome-icon">✳</div>
-        <p class="eyebrow">YOUR AI WORKSPACE</p>
-        <h1>Build something<br><span>together.</span></h1>
-        <p class="welcome-copy">Chat with one agent or bring your AI team into a shared conversation.</p>
-        <div class="suggestions">
-          <button class="suggestion" data-prompt="Help me research this idea and identify the main requirements."><span>⌕</span><span><b>Research an idea</b><small>Explore requirements and options</small></span><span class="suggestion-arrow">↗</span></button>
-          <button class="suggestion" data-prompt="Help me design a technical architecture for a new application."><span>◇</span><span><b>Design an architecture</b><small>Turn an idea into a technical plan</small></span><span class="suggestion-arrow">↗</span></button>
-          <button class="suggestion" data-prompt="Help me plan development and testing for an application."><span>⌘</span><span><b>Plan development</b><small>Coordinate developers and testing</small></span><span class="suggestion-arrow">↗</span></button>
-        </div>
-      </section>
-
-      <section id="messages" class="messages hidden" aria-live="polite"></section>
-
-      <div class="composer-wrap">
-        <div id="errorBanner" class="error-banner hidden"></div>
-        <form id="messageForm" class="composer">
-          <textarea id="messageInput" rows="1" placeholder="Message your AI team..." autocomplete="off"></textarea>
-          <div class="composer-footer"><span><kbd>Enter</kbd> to send · <kbd>Shift + Enter</kbd> for a new line</span><button id="sendBtn" type="submit" aria-label="Send message">↑</button></div>
-        </form>
-        <p class="disclaimer">AI responses can be incorrect. Review important decisions and generated work.</p>
-      </div>
-    </main>
-  </div>
-  <script src="app.js"></script>
-</body>
-</html>
+    </div>
+  </main>
+</div>
+<div id="newChatModal" class="modal-backdrop hidden"><div class="modal"><button class="modal-close" id="closeModal">×</button><div class="modal-icon">✳</div><div class="eyebrow">NEW CONVERSATION</div><h2>What are we working on?</h2><p>Start with the Manager to coordinate a project, or choose a specific agent.</p><label for="chatMode">Conversation type</label><select id="chatMode"><option value="manager">Manager · coordinate my team</option><option value="individual">Chat with a specific agent</option><option value="group">Create a group chat</option></select><div id="agentPickerWrap" class="hidden"><label for="modalAgents">Participants</label><select id="modalAgents" multiple></select><small>Use Ctrl/Cmd to select multiple agents for a group.</small></div><label for="newChatTitle">Title <span class="optional-label">optional</span></label><input id="newChatTitle" placeholder="e.g. Build a calculator app"><button id="createModalChat" class="primary-btn modal-submit">Create conversation <span>→</span></button></div></div>
+<script src="app.js"></script>
+</body></html>

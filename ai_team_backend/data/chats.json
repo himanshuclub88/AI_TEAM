@@ -1,1 +1,55 @@
-[]
+[
+  {
+    "id": "chat_81ee7b6bacc5",
+    "title": "Chat with Manager",
+    "chat_type": "individual",
+    "participant_ids": [
+      "manager"
+    ],
+    "created_at": "2026-10-11T13:42:28.065386Z",
+    "updated_at": "2026-10-11T13:51:42.828244+00:00"
+  },
+  {
+    "id": "chat_10f5f272a852",
+    "title": "Research · build a calculator app",
+    "chat_type": "group",
+    "participant_ids": [
+      "manager",
+      "researcher"
+    ],
+    "created_at": "2026-10-11T13:42:40.502970Z",
+    "updated_at": "2026-10-11T13:43:04.581971+00:00",
+    "workflow_key": "chat_81ee7b6bacc5:b79d8f2c",
+    "workflow_chat": true
+  },
+  {
+    "id": "chat_3a28b51ebda3",
+    "title": "Architecture · build a calculator app",
+    "chat_type": "group",
+    "participant_ids": [
+      "manager",
+      "architect",
+      "researcher"
+    ],
+    "created_at": "2026-10-11T13:42:40.544068Z",
+    "updated_at": "2026-10-11T13:43:44.636413+00:00",
+    "workflow_key": "chat_81ee7b6bacc5:b79d8f2c",
+    "workflow_chat": true
+  },
+  {
+    "id": "chat_b0dbb584775f",
+    "title": "Development · build a calculator app",
+    "chat_type": "group",
+    "participant_ids": [
+      "manager",
+      "architect",
+      "frontend_developer",
+      "backend_developer",
+      "tester"
+    ],
+    "created_at": "2026-10-11T13:42:40.586991Z",
+    "updated_at": "2026-10-11T13:51:42.777942+00:00",
+    "workflow_key": "chat_81ee7b6bacc5:b79d8f2c",
+    "workflow_chat": true
+  }
+]

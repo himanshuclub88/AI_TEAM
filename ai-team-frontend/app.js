@@ -1,290 +1,48 @@
 const $ = (id) => document.getElementById(id);
-
-const state = {
-  apiBase: "http://127.0.0.1:8081",
-  agents: [],
-  chats: [],
-  currentChat: null,
-  messages: [],
-  busy: false,
-};
-
-function apiUrl(path) {
-  return `${state.apiBase.replace(/\/+$/, "")}${path}`;
-}
-
-async function api(path, options = {}) {
-  const response = await fetch(apiUrl(path), {
-    ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-  });
-  const raw = await response.text();
-  let data = null;
-  try { data = raw ? JSON.parse(raw) : null; } catch { data = raw; }
-  if (!response.ok) {
-    const detail = data && typeof data === "object" ? (data.detail || JSON.stringify(data)) : data;
-    throw new Error(detail || `Request failed (${response.status})`);
-  }
-  return data;
-}
-
-function setConnection(connected, text) {
-  const el = $("connectionState");
-  el.innerHTML = `<span class="status-dot ${connected ? "ok" : ""}"></span>${escapeHtml(text)}`;
-}
-
-function showError(message) {
-  const banner = $("errorBanner");
-  banner.textContent = message;
-  banner.classList.remove("hidden");
-}
-
-function clearError() {
-  $("errorBanner").classList.add("hidden");
-  $("errorBanner").textContent = "";
-}
-
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[ch]));
-}
-
-function agentName(id) {
-  if (id === "user") return "You";
-  return state.agents.find((agent) => agent.id === id)?.name || id || "Agent";
-}
-
-function selectedAgentIds() {
-  return [...$("agentSelect").selectedOptions].map((option) => option.value);
-}
-
-async function connect() {
-  state.apiBase = $("apiBase").value.trim() || "http://127.0.0.1:8000";
-  localStorage.setItem("aiTeamApiBase", state.apiBase);
-  clearError();
-  try {
-    const [, agents, chats] = await Promise.all([
-      api("/health"),
-      api("/agents"),
-      api("/chats"),
-    ]);
-    state.agents = agents || [];
-    state.chats = chats || [];
-    renderAgentOptions();
-    renderChatList();
-    setConnection(true, "Connected");
-    if (state.chats.length && !state.currentChat) {
-      await openChat(state.chats[0].id);
-    } else if (state.currentChat) {
-      const exists = state.chats.find((chat) => chat.id === state.currentChat.id);
-      if (exists) await openChat(exists.id);
-    }
-  } catch (error) {
-    setConnection(false, "Not connected");
-    showError(`Cannot connect to backend: ${error.message}. Start FastAPI and check the backend URL. If the browser reports a CORS error, enable CORS in FastAPI for this frontend origin.`);
-  }
-}
-
-function renderAgentOptions() {
-  const select = $("agentSelect");
-  const previous = selectedAgentIds();
-  select.innerHTML = state.agents
-    .filter((agent) => agent.enabled !== false)
-    .map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(agent.name)}</option>`)
-    .join("");
-  if (previous.length) {
-    [...select.options].forEach((option) => { option.selected = previous.includes(option.value); });
-  } else {
-    const manager = [...select.options].find((option) => option.value === "manager");
-    if (manager) manager.selected = true;
-    else if (select.options[0]) select.options[0].selected = true;
-  }
-  updateChatType();
-}
-
-function updateChatType() {
-  const individual = $("chatType").value === "individual";
-  $("agentSelect").multiple = !individual;
-  if (individual) {
-    const selected = selectedAgentIds();
-    const keep = selected[0] || $("agentSelect").options[0]?.value;
-    [...$("agentSelect").options].forEach((option) => { option.selected = option.value === keep; });
-    $("participantHint").textContent = "Select one agent for an individual chat.";
-  } else {
-    $("participantHint").textContent = "Use Ctrl/Cmd to select multiple agents.";
-  }
-}
-
-function renderChatList() {
-  const list = $("chatList");
-  if (!state.chats.length) {
-    list.innerHTML = `<div style="padding:8px 10px;color:#777a83;font-size:11px;line-height:1.6">Your chats will appear here.</div>`;
-    return;
-  }
-  list.innerHTML = state.chats
-    .slice()
-    .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
-    .map((chat) => `
-      <button class="chat-item ${state.currentChat?.id === chat.id ? "active" : ""}" data-chat-id="${escapeHtml(chat.id)}">
-        <span class="chat-icon">${chat.chat_type === "group" ? "◉" : "○"}</span>
-        <span class="chat-name">${escapeHtml(chat.title)}</span>
-      </button>`)
-    .join("");
-  list.querySelectorAll("[data-chat-id]").forEach((button) => {
-    button.addEventListener("click", () => openChat(button.dataset.chatId));
-  });
-}
-
-async function createChat() {
-  clearError();
-  const participantIds = selectedAgentIds();
-  if (!participantIds.length) {
-    showError("Choose at least one agent.");
-    return;
-  }
-  try {
-    const chat = await api("/chats", {
-      method: "POST",
-      body: JSON.stringify({
-        title: $("chatType").value === "group"
-          ? `Team chat · ${participantIds.map(agentName).join(", ")}`
-          : `Chat with ${agentName(participantIds[0])}`,
-        chat_type: $("chatType").value,
-        participant_ids: participantIds,
-      }),
-    });
-    state.chats.push(chat);
-    await openChat(chat.id);
-  } catch (error) {
-    showError(error.message);
-  }
-}
-
-async function openChat(chatId) {
-  clearError();
-  try {
-    const [chat, messages] = await Promise.all([
-      api(`/chats/${encodeURIComponent(chatId)}`),
-      api(`/chats/${encodeURIComponent(chatId)}/messages`),
-    ]);
-    state.currentChat = chat;
-    state.messages = messages || [];
-    $("chatTitle").textContent = chat.title;
-    $("chatSubtitle").textContent = `${chat.chat_type === "group" ? "Group chat" : "Individual chat"} · ${chat.participant_ids.map(agentName).join(", ")}`;
-    $("welcome").classList.add("hidden");
-    $("messages").classList.remove("hidden");
-    renderMessages();
-    renderChatList();
-  } catch (error) {
-    showError(error.message);
-  }
-}
-
-function renderMessages() {
-  const container = $("messages");
-  if (!state.messages.length) {
-    container.innerHTML = `<div class="typing">Start the conversation. Messages from you and your agents will appear here.</div>`;
-    return;
-  }
-  container.innerHTML = state.messages.map((message) => {
-    const isUser = message.sender_id === "user";
-    const name = agentName(message.sender_id);
-    const initial = isUser ? "Y" : name.slice(0, 1).toUpperCase();
-    const time = message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-    const type = message.message_type && message.message_type !== "chat" ? `<span class="message-type">${escapeHtml(message.message_type.replaceAll("_", " "))}</span>` : "";
-    return `<article class="message ${isUser ? "user" : ""}">
-      <div class="avatar">${escapeHtml(initial)}</div>
-      <div class="message-body">
-        <div class="message-meta"><strong>${escapeHtml(name)}</strong><time>${escapeHtml(time)}</time>${type}</div>
-        <div class="message-content">${escapeHtml(message.content)}</div>
-      </div>
-    </article>`;
-  }).join("");
-  container.scrollTop = container.scrollHeight;
-}
-
-async function sendMessage(content) {
-  if (!state.currentChat) {
-    showError("Create a chat first.");
-    return;
-  }
-  if (state.busy) return;
-  state.busy = true;
-  clearError();
-  $("sendBtn").disabled = true;
-  $("sendBtn").textContent = "…";
-  const container = $("messages");
-  const typing = document.createElement("div");
-  typing.className = "typing";
-  typing.textContent = "Your AI team is working…";
-  container.appendChild(typing);
-  container.scrollTop = container.scrollHeight;
-  try {
-    const result = await api(`/chats/${encodeURIComponent(state.currentChat.id)}/messages`, {
-      method: "POST",
-      body: JSON.stringify({ sender_id: "user", content }),
-    });
-    typing.remove();
-    // The API returns messages generated by this request; reload to display the canonical persisted history.
-    state.messages = await api(`/chats/${encodeURIComponent(state.currentChat.id)}/messages`);
-    renderMessages();
-    state.chats = await api("/chats");
-    renderChatList();
-  } catch (error) {
-    typing.remove();
-    showError(error.message);
-    // Reload history because the backend may have persisted the user message before an LLM error.
-    try {
-      state.messages = await api(`/chats/${encodeURIComponent(state.currentChat.id)}/messages`);
-      renderMessages();
-    } catch {}
-  } finally {
-    state.busy = false;
-    $("sendBtn").disabled = false;
-    $("sendBtn").textContent = "↑";
-    $("messageInput").focus();
-  }
-}
-
-$("connectBtn").addEventListener("click", connect);
-$("createChatBtn").addEventListener("click", createChat);
-$("newChatBtn").addEventListener("click", () => {
-  state.currentChat = null;
-  state.messages = [];
-  $("chatTitle").textContent = "New chat";
-  $("chatSubtitle").textContent = "Choose an agent and start a conversation";
-  $("messages").classList.add("hidden");
-  $("welcome").classList.remove("hidden");
-  renderChatList();
-});
-$("chatType").addEventListener("change", updateChatType);
-$("messageForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const input = $("messageInput");
-  const content = input.value.trim();
-  if (!content) return;
-  input.value = "";
-  input.style.height = "auto";
-  await sendMessage(content);
-});
-$("messageInput").addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) {
-    event.preventDefault();
-    $("messageForm").requestSubmit();
-  }
-});
-$("messageInput").addEventListener("input", (event) => {
-  event.target.style.height = "auto";
-  event.target.style.height = `${Math.min(event.target.scrollHeight, 160)}px`;
-});
-document.querySelectorAll("[data-prompt]").forEach((button) => {
-  button.addEventListener("click", () => {
-    $("messageInput").value = button.dataset.prompt;
-    $("messageInput").focus();
-    $("messageInput").dispatchEvent(new Event("input"));
-  });
-});
-
-$("apiBase").value = localStorage.getItem("aiTeamApiBase") || state.apiBase;
-connect();
+const state = { apiBase: 'http://127.0.0.1:8000', agents: [], chats: [], tasks: [], currentChat: null, messages: [], busy: false, pollTimer: null, startedAt: null, elapsedTimer: null, knownMessages: new Set(), lastUpdated: null, workflowChats: [], pendingPrompt: null };
+const WORKFLOW_ROLES = ['researcher','architect','frontend_developer','backend_developer','tester'];
+function apiUrl(path){return `${state.apiBase.replace(/\/+$/,'')}${path}`}
+async function api(path, options={}){const r=await fetch(apiUrl(path),{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});const raw=await r.text();let d=null;try{d=raw?JSON.parse(raw):null}catch{d=raw}if(!r.ok){const detail=d&&typeof d==='object'?(d.detail||JSON.stringify(d)):d;throw new Error(detail||`Request failed (${r.status})`)}return d}
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function agentName(id){if(id==='user')return 'You';return state.agents.find(a=>a.id===id)?.name||id||'Agent'}
+function initials(id){const n=agentName(id);return id==='user'?'Y':n.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase()}
+function timeLabel(value){if(!value)return '';const d=new Date(value);return Number.isNaN(d.getTime())?'':d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+function relativeTime(value){if(!value)return '';const mins=Math.max(0,Math.floor((Date.now()-new Date(value).getTime())/60000));if(mins<1)return 'just now';if(mins<60)return `${mins}m ago`;const hours=Math.floor(mins/60);return hours<24?`${hours}h ago`:`${Math.floor(hours/24)}d ago`}
+function isWorkflowChat(c){return c?.workflow_chat===true||/^(Research|Architecture|Development) ·/i.test(c?.title||'')}
+function setConnection(ok,msg,sub=''){ $('connectionDot').classList.toggle('connected',ok);$('connectionText').textContent=msg;$('connectionSub').textContent=sub|| (ok?'API responding':'Check FastAPI URL') }
+function showError(message){$('errorBanner').textContent=message;$('errorBanner').classList.remove('hidden')}
+function clearError(){$('errorBanner').classList.add('hidden');$('errorBanner').textContent=''}
+function showOverview(){ $('overview').classList.remove('hidden');$('chatPage').classList.add('hidden');$('breadcrumbTitle').textContent='Overview';state.currentChat=null;renderChatList() }
+function showChatPage(){ $('overview').classList.add('hidden');$('chatPage').classList.remove('hidden') }
+async function connect(){state.apiBase=$('apiBase').value.trim()||'http://127.0.0.1:8000';localStorage.setItem('aiTeamApiBase',state.apiBase);clearError();try{const [health,agents,chats,tasks]=await Promise.all([api('/health'),api('/agents'),api('/chats'),api('/tasks').catch(()=>[])]);state.agents=agents||[];state.chats=chats||[];state.tasks=tasks||[];setConnection(true,'Backend connected',`${health.service||'FastAPI'} · ${health.version||'online'}`);renderAll();if(state.currentChat){const c=state.chats.find(x=>x.id===state.currentChat.id);if(c)await openChat(c.id,{quiet:true})}else if(!state.chats.length){showOverview()}else{showOverview()} }catch(e){setConnection(false,'Not connected','Start FastAPI, then retry');showError(`Could not connect to ${state.apiBase}: ${e.message}`)}}
+async function loadWorkflowHistories(){const workflow=state.chats.filter(isWorkflowChat);await Promise.all(workflow.map(async c=>{try{c._messages=await api(`/chats/${encodeURIComponent(c.id)}/messages`)}catch{c._messages=[]}}))}
+async function refreshWorkspace(){try{const [chats,tasks]=await Promise.all([api('/chats'),api('/tasks').catch(()=>state.tasks)]);state.chats=chats||[];state.tasks=tasks||[];await loadWorkflowHistories();renderAll();if(state.currentChat){const found=state.chats.find(c=>c.id===state.currentChat.id);if(found){state.currentChat=found;const msgs=await api(`/chats/${encodeURIComponent(found.id)}/messages`);updateMessages(msgs||[])} }state.lastUpdated=new Date();$('lastUpdated').textContent=`Updated ${timeLabel(state.lastUpdated)}`}catch(e){if(!state.busy)setConnection(false,'Connection issue','Retrying automatically')}}
+function renderAll(){renderChatList();renderStats();renderRecent();renderAgentRoster();renderActivity()}
+function renderStats(){ $('chatCount').textContent=state.chats.length;$('statChats').textContent=state.chats.length;$('statAgents').textContent=state.agents.filter(a=>a.enabled!==false).length;const active=state.busy;$('statActivity').textContent=active?'Working':'Idle';$('statActivitySub').textContent=active?'Agents are responding':'Waiting for a request' }
+function chatGlyph(c){if(c.workflow_chat||/Research/i.test(c.title))return '⌕';if(/Architecture/i.test(c.title))return '◇';if(/Development/i.test(c.title))return '⌘';if(c.chat_type==='group')return '◎';return '✳'}
+function renderChatList(){const list=$('chatList');const sorted=[...state.chats].sort((a,b)=>new Date(b.updated_at||b.created_at)-new Date(a.updated_at||a.created_at));if(!sorted.length){list.innerHTML='<div class="sidebar-empty">Your conversations will appear here.</div>';return}list.innerHTML=sorted.map(c=>`<button class="chat-item ${state.currentChat?.id===c.id?'active':''}" data-chat-id="${esc(c.id)}" title="${esc(c.title)}"><span class="chat-glyph">${chatGlyph(c)}</span><span class="chat-name">${esc(c.title)}</span><span class="chat-time">${c.updated_at?relativeTime(c.updated_at):''}</span></button>`).join('');list.querySelectorAll('[data-chat-id]').forEach(b=>b.addEventListener('click',()=>openChat(b.dataset.chatId)))}
+function renderRecent(){const box=$('recentChats');const recent=[...state.chats].sort((a,b)=>new Date(b.updated_at||b.created_at)-new Date(a.updated_at||a.created_at)).slice(0,3);if(!recent.length){box.innerHTML='<div class="loading-card">No saved chats yet. Start a project to create your first conversation.</div>';return}box.innerHTML=recent.map(c=>`<button class="recent-card" data-recent-id="${esc(c.id)}"><span class="recent-card-icon">${chatGlyph(c)}</span><span class="recent-card-copy"><b>${esc(c.title)}</b><small>${c.chat_type==='group'?'Team conversation':'Manager conversation'} · ${c.updated_at?relativeTime(c.updated_at):'Saved'}</small></span><span class="recent-arrow">↗</span></button>`).join('');box.querySelectorAll('[data-recent-id]').forEach(b=>b.addEventListener('click',()=>openChat(b.dataset.recentId)))}
+function openModal(){clearError();$('newChatTitle').value='';$('chatMode').value='manager';renderModalAgents();updateModalMode();$('newChatModal').classList.remove('hidden');setTimeout(()=>$('newChatTitle').focus(),30)}
+function renderModalAgents(){const s=$('modalAgents');s.innerHTML=state.agents.filter(a=>a.enabled!==false).map(a=>`<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');const m=[...s.options].find(o=>o.value==='manager');if(m)m.selected=true}
+function updateModalMode(){const mode=$('chatMode').value;$('agentPickerWrap').classList.toggle('hidden',mode==='manager');$('modalAgents').multiple=mode==='group';if(mode==='individual'){[...$('modalAgents').options].forEach(o=>o.selected=o.value==='manager')}else if(mode==='group'){const ids=['manager','architect','frontend_developer','backend_developer','tester'];[...$('modalAgents').options].forEach(o=>o.selected=ids.includes(o.value))}}
+async function createModalChat(){const mode=$('chatMode').value;let ids=mode==='manager'?['manager']:[...$('modalAgents').selectedOptions].map(o=>o.value);if(mode==='individual')ids=ids.slice(0,1);if(!ids.length){showError('Choose at least one agent.');return}const title=$('newChatTitle').value.trim()||(mode==='manager'?'Chat with Manager':`${mode==='group'?'Team chat':'Chat with '+agentName(ids[0])}`);try{const chat=await api('/chats',{method:'POST',body:JSON.stringify({title,chat_type:mode==='group'?'group':'individual',participant_ids:ids})});state.chats.push(chat);$('newChatModal').classList.add('hidden');const pending=state.pendingPrompt;state.pendingPrompt=null;await openChat(chat.id);if(pending){$('messageInput').value=pending;await sendMessage(pending)}}catch(e){showError(e.message);$('newChatModal').classList.add('hidden')}}
+async function openChat(id,{quiet=false}={}){try{const [chat,messages]=await Promise.all([api(`/chats/${encodeURIComponent(id)}`),api(`/chats/${encodeURIComponent(id)}/messages`)]);state.currentChat=chat;state.messages=messages||[];state.knownMessages=new Set(state.messages.map(m=>m.id));showChatPage();$('breadcrumbTitle').textContent=chat.title;$('chatTitle').textContent=chat.title;$('chatSubtitle').textContent=`${chat.chat_type==='group'?'Team conversation':'Individual conversation'} · ${(chat.participant_ids||[]).map(agentName).join(', ')}`;$('chatTypeIcon').textContent=chatGlyph(chat);$('messageInput').placeholder=chat.participant_ids?.length===1&&chat.participant_ids[0]==='manager'?'Message your Manager…':'Send a message to this group…';const wf=isWorkflowChat(chat)||state.chats.some(c=>c.workflow_key===chat.workflow_key&&c.workflow_chat);$('workflowStrip').classList.toggle('hidden',!wf);renderMessages();renderChatList();renderActivity();if(!quiet)$('messageInput').focus()}catch(e){showError(`Could not open chat: ${e.message}`)}}
+function updateMessages(msgs){const oldCount=state.messages.length;const oldIds=new Set(state.messages.map(m=>m.id));state.messages=msgs;const added=msgs.filter(m=>!oldIds.has(m.id));renderMessages();if(added.length&&state.busy){const latest=added[added.length-1];$('workingText').textContent=`${agentName(latest.sender_id)} added an update`;if(latest.sender_id!=='user')setActivityHeadline(`${agentName(latest.sender_id)} responded`,`Update saved at ${timeLabel(latest.created_at)}`)}if(msgs.length!==oldCount)renderActivity()}
+function renderMessages(){const el=$('messages');if(!state.messages.length){el.innerHTML='<div class="empty-conversation"><div class="empty-symbol">✳</div><h2>Start a conversation</h2><p>Tell the Manager what you want to achieve.</p></div>';return}el.innerHTML=state.messages.map(m=>{const user=m.sender_id==='user';const type=m.message_type&&m.message_type!=='chat'?`<span class="${m.message_type==='task_handoff'?'message-tag':'message-type-label'}">${esc(m.message_type.replaceAll('_',' '))}</span>`:'';return `<article class="message ${user?'user':''}" data-message-id="${esc(m.id)}"><div class="message-avatar">${esc(initials(m.sender_id))}</div><div class="message-content-wrap"><div class="message-meta"><b>${esc(agentName(m.sender_id))}</b><time>${esc(timeLabel(m.created_at))}</time>${type}</div><div class="message-content">${esc(m.content)}</div></div></article>`}).join('');el.scrollTop=el.scrollHeight}
+function setBusy(busy){state.busy=busy;$('sendBtn').disabled=busy;$('sendLabel').textContent=busy?'Working':'Send';$('runPill').classList.toggle('working',busy);$('runPill').innerHTML=busy?'<span class="tiny-green"></span> In progress':'<span class="tiny-green"></span> Ready';$('workingBanner').classList.toggle('hidden',!busy);$('activityState').classList.toggle('working',busy);$('activityState').textContent=busy?'Working':'Standby';$('connectionDot').classList.toggle('working',busy);renderStats();renderAgentRoster();renderActivity()}
+function startElapsed(){state.startedAt=Date.now();clearInterval(state.elapsedTimer);state.elapsedTimer=setInterval(()=>{if(!state.startedAt)return;const s=Math.floor((Date.now()-state.startedAt)/1000);$('elapsedTime').textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`},1000)}
+function stopElapsed(){clearInterval(state.elapsedTimer);state.elapsedTimer=null;state.startedAt=null}
+async function sendMessage(content){if(!state.currentChat){openModal();return}if(state.busy)return;clearError();const chatId=state.currentChat.id;setBusy(true);startElapsed();$('workingText').textContent='Request sent. Waiting for the first saved agent update…';state.messages.push({id:`optimistic_${Date.now()}`,chat_id:chatId,sender_id:'user',content,created_at:new Date().toISOString(),message_type:'chat'});renderMessages();state.knownMessages=new Set(state.messages.map(m=>m.id));state.pollTimer=setInterval(()=>{refreshWhileWorking(chatId)},1400);try{await api(`/chats/${encodeURIComponent(chatId)}/messages`,{method:'POST',body:JSON.stringify({sender_id:'user',content})});await refreshWorkspace();if(state.currentChat?.id===chatId){const msgs=await api(`/chats/${encodeURIComponent(chatId)}/messages`);state.messages=msgs;state.knownMessages=new Set(msgs.map(m=>m.id));renderMessages()}$('workingText').textContent='Workflow response received.'}catch(e){showError(`Request failed: ${e.message}`);try{const msgs=await api(`/chats/${encodeURIComponent(chatId)}/messages`);if(state.currentChat?.id===chatId){state.messages=msgs;renderMessages()}}catch{}}finally{clearInterval(state.pollTimer);state.pollTimer=null;setBusy(false);stopElapsed();await refreshWorkspace();if(state.currentChat?.id===chatId){try{state.messages=await api(`/chats/${encodeURIComponent(chatId)}/messages`);renderMessages()}catch{}}$('messageInput').focus()}}
+async function refreshWhileWorking(chatId){try{const [chats,tasks]=await Promise.all([api('/chats'),api('/tasks').catch(()=>state.tasks)]);state.chats=chats||[];state.tasks=tasks||[];await loadWorkflowHistories();renderChatList();renderStats();renderAgentRoster();renderActivity();if(state.currentChat?.id===chatId){const msgs=await api(`/chats/${encodeURIComponent(chatId)}/messages`);updateMessages(msgs)}else{const chat=state.chats.find(c=>c.id===chatId);if(chat)state.currentChat=chat}$('lastUpdated').textContent=`Updated ${timeLabel(new Date())}`}catch(e){$('workingText').textContent='Waiting for backend activity…'}}
+function relatedWorkflowChats(){const c=state.currentChat;if(!c)return [];let group=[];if(c.workflow_key)group=state.chats.filter(x=>x.workflow_key===c.workflow_key);if(!group.length&&isWorkflowChat(c)){const base=c.title.replace(/^(Research|Architecture|Development) · /i,'');group=state.chats.filter(x=>isWorkflowChat(x)&&x.title.endsWith(base))}if(!group.length&&state.chats.some(isWorkflowChat)){const mostRecent=state.chats.filter(isWorkflowChat).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));const key=mostRecent[0]?.workflow_key;if(key)group=state.chats.filter(x=>x.workflow_key===key)}return group}
+function allWorkflowMessages(){const chats=relatedWorkflowChats();return chats.flatMap(c=>(c._messages||[]).map(m=>({...m,_chat:c}))).sort((a,b)=>new Date(a.created_at)-new Date(b.created_at))}
+function latestMessagesByAgent(){const latest={};for(const m of state.messages){if(m.sender_id!=='user')latest[m.sender_id]=m}for(const c of relatedWorkflowChats()){if(c.id===state.currentChat?.id)continue;if(c._messages)for(const m of c._messages){if(m.sender_id!=='user')latest[m.sender_id]=m}}return latest}
+function stageForAgent(id){if(id==='researcher')return 'research';if(id==='architect')return 'architecture';if(['frontend_developer','backend_developer'].includes(id))return 'development';if(id==='tester')return 'testing';return 'manager'}
+function stageForMessage(m){if(m.message_type==='task_handoff')return 'handoff';return stageForAgent(m.sender_id)}
+function renderAgentRoster(){const box=$('agentRoster');if(!state.agents.length){box.innerHTML='<div class="timeline-empty">No agents loaded.</div>';return}const latest=latestMessagesByAgent();const related=relatedWorkflowChats();const hasWorkflow=related.length>0;const latestWorkflow=related.map(c=>new Date(c.updated_at||c.created_at).getTime()).filter(Boolean).sort((a,b)=>b-a)[0];let currentAgent=null;if(state.busy){const userLast=state.messages.filter(m=>m.sender_id==='user').slice(-1)[0];const recent=Object.entries(latest).sort((a,b)=>new Date(b[1].created_at)-new Date(a[1].created_at))[0];currentAgent=recent?.[0]||'manager';if(currentAgent==='user')currentAgent='manager'}const ordered=['manager','researcher','architect','frontend_developer','backend_developer','tester'];box.innerHTML=ordered.map(id=>{const a=state.agents.find(x=>x.id===id);if(!a)return '';const m=latest[id];let status='Ready',cls='waiting',detail='Waiting for a task';if(state.busy&&id===currentAgent){status='Active';cls='active';detail='Latest agent update'}else if(m){status='Responded';cls='done';detail=`Last update ${timeLabel(m.created_at)}`}else if(hasWorkflow&&related.some(c=>(c.participant_ids||[]).includes(id))){status='In workflow';cls='waiting';detail='Assigned to project'}return `<div class="agent-row ${cls==='active'?'active':''}"><div class="agent-avatar">${esc(initials(id))}</div><div class="agent-info"><b>${esc(a.name)}</b><small>${esc(detail)}</small></div><span class="agent-status ${cls}">${status}</span></div>`}).join('');$('rosterCount').textContent=`${state.agents.filter(a=>a.enabled!==false).length} agents`}
+function setActivityHeadline(head,desc){$('activityHeadline').textContent=head;$('activityDescription').textContent=desc}
+function renderActivity(){const related=relatedWorkflowChats();const workflow=related.length>0;const allMsgs=[];for(const c of related){if(c._messages)allMsgs.push(...c._messages.map(m=>({...m,_chat:c})))}if(state.currentChat)allMsgs.push(...state.messages.map(m=>({...m,_chat:state.currentChat})));const unique=new Map();for(const m of allMsgs)if(!unique.has(m.id))unique.set(m.id,m);const events=[...unique.values()].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));const last=events.filter(m=>m.sender_id!=='user').slice(-1)[0];if(state.busy)setActivityHeadline(last?`${agentName(last.sender_id)} is contributing`:'Workflow is starting','Updates are polled from saved chat histories.');else if(last)setActivityHeadline('Latest agent update',`${agentName(last.sender_id)} · ${timeLabel(last.created_at)}`);else if(workflow)setActivityHeadline('Workflow chats found','Open a workflow chat to inspect its full history.');else setActivityHeadline('No active workflow','Send a project request to start coordinating agents.');$('timelineCount').textContent=`${events.length} events`;const strip=$('workflowStrip');if(workflow||state.busy){strip.classList.remove('hidden');const title=related.find(c=>/Research ·/i.test(c.title))?.title?.replace(/^Research · /i,'')||state.currentChat?.title||'Project workflow';$('workflowTitle').textContent=title;$('workflowProgressText').textContent=state.busy?'Agents are working…':`${related.length} workflow chats`;const stageStates={research:'waiting',architecture:'waiting',development:'waiting',testing:'waiting'};for(const m of events){const s=stageForAgent(m.sender_id);if(stageStates[s])stageStates[s]='done'}if(state.busy){const current=events.filter(m=>m.sender_id!=='user').slice(-1)[0];const s=current?stageForAgent(current.sender_id):'research';if(stageStates[s]&&stageStates[s]!=='done')stageStates[s]='active';else if(stageStates[s]==='done'&&current)stageStates[s]='active'}document.querySelectorAll('.pipeline-step').forEach(el=>{const s=el.dataset.stage;el.classList.toggle('done',stageStates[s]==='done');el.classList.toggle('active',stageStates[s]==='active')})}else strip.classList.add('hidden');const timeline=$('activityTimeline');if(!events.length){timeline.innerHTML='<div class="timeline-empty">Agent updates will appear here while your request runs.</div>';return}const show=events.slice(-12).reverse();timeline.innerHTML=show.map((m,i)=>{const title=m.message_type==='task_handoff'?`${agentName(m.sender_id)} handed off a task`:m.sender_id==='user'?'Request submitted':`${agentName(m.sender_id)} responded`;const desc=(m.content||'').replace(/\s+/g,' ').slice(0,110);return `<div class="timeline-item ${i===0&&state.busy?'current':m.sender_id!=='user'?'complete':''}"><div class="timeline-rail"><span class="timeline-dot"></span></div><div class="timeline-copy"><b>${esc(title)}</b><p>${esc(desc)}${(m.content||'').length>110?'…':''}</p><time>${esc(timeLabel(m.created_at))}${m._chat?.title?` · ${esc(m._chat.title.replace(/ · .*/,''))}`:''}</time></div></div>`}).join('')}
+function renderPipelineForMain(){renderActivity()}
+$('connectBtn').addEventListener('click',connect);$('refreshBtn').addEventListener('click',refreshWorkspace);$('refreshTop').addEventListener('click',refreshWorkspace);$('chatRefreshBtn').addEventListener('click',async()=>{if(state.currentChat)await openChat(state.currentChat.id,{quiet:true});await refreshWorkspace()});$('settingsBtn').addEventListener('click',()=>$('settingsPanel').classList.toggle('hidden'));$('newChatBtn').addEventListener('click',()=>{state.pendingPrompt=null;openModal()});$('startBuildBtn').addEventListener('click',()=>{state.pendingPrompt=null;openModal();$('chatMode').value='manager';updateModalMode();$('newChatTitle').value=''});$('openManagerBtn').addEventListener('click',async()=>{state.pendingPrompt=null;const manager=state.chats.find(c=>c.chat_type==='individual'&&(c.participant_ids||[]).length===1&&c.participant_ids[0]==='manager');if(manager)await openChat(manager.id);else{openModal();$('chatMode').value='manager';updateModalMode()}});$('homeNav').addEventListener('click',showOverview);$('viewChatsBtn').addEventListener('click',()=>{$('chatList').scrollTop=0;$('chatList').querySelector('.chat-item')?.scrollIntoView({block:'nearest'})});$('closeModal').addEventListener('click',()=>$('newChatModal').classList.add('hidden'));$('newChatModal').addEventListener('click',e=>{if(e.target===$('newChatModal'))$('newChatModal').classList.add('hidden')});$('chatMode').addEventListener('change',updateModalMode);$('createModalChat').addEventListener('click',createModalChat);$('sidebarToggle').addEventListener('click',()=>$('app-shell')?.classList.toggle('sidebar-collapsed')||document.body.classList.toggle('sidebar-collapsed'));document.querySelectorAll('[data-prompt]').forEach(b=>b.addEventListener('click',()=>{state.pendingPrompt=b.dataset.prompt;openModal();$('chatMode').value='manager';updateModalMode();$('newChatTitle').value=b.dataset.prompt==='Build me a calculator app'?'Calculator app':b.dataset.prompt.startsWith('Design')?'Architecture planning':b.dataset.prompt.startsWith('Help me research')?'Idea research':'';}));$('messageForm').addEventListener('submit',async e=>{e.preventDefault();const input=$('messageInput');const content=input.value.trim();if(!content)return;input.value='';input.style.height='auto';if(!state.currentChat){openModal();$('newChatTitle').value='';return}await sendMessage(content)});$('messageInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('messageForm').requestSubmit()}});$('messageInput').addEventListener('input',e=>{e.target.style.height='auto';e.target.style.height=`${Math.min(e.target.scrollHeight,130)}px`});document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openModal()}if(e.key==='Escape')$('newChatModal').classList.add('hidden')});
+// While idle, refresh saved chats periodically. While a request runs, a faster poll reads histories independently.
+state.apiBase=localStorage.getItem('aiTeamApiBase')||state.apiBase;$('apiBase').value=state.apiBase;connect();setInterval(()=>{if(!state.busy)refreshWorkspace()},6000);
