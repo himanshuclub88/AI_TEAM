@@ -57,6 +57,37 @@ def build_structured_chain(
         | parser
     )
 
+def generate_reply(
+    *,
+    system_prompt: str,
+    messages: list[dict[str, str]],
+    response_model: type[BaseModel] | None = None,
+) -> str | BaseModel:
+
+    conversation = "\n\n".join(
+        f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
+        for msg in messages
+    )
+
+    if response_model:
+        chain = build_structured_chain(
+            system_prompt=system_prompt,
+            output_model=response_model,
+        )
+        return chain.invoke({"input": conversation})
+
+    class Reply(BaseModel):
+        reply: str
+
+    chain = build_structured_chain(
+        system_prompt=system_prompt,
+        output_model=Reply,
+    )
+
+    result = chain.invoke({"input": conversation})
+    return result.reply
+
+
 
 if __name__ == "__main__":
 
@@ -71,7 +102,7 @@ if __name__ == "__main__":
     )
 
 
-    prompt = PromptTemplate(
+    prompt = ChatPromptTemplate(
         template="""
 You are testing an LLM connection.
 
