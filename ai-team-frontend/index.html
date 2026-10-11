@@ -3,32 +3,137 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Team</title>
+  <meta name="theme-color" content="#10131c">
+  <title>Orbit AI Team</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="#" id="homeBtn"><span class="brand-mark">✳</span><span>AI Team</span></a>
-    <div class="top-actions"><span id="connection" class="connection"><i></i><span>Connecting…</span></span><button id="refreshBtn" class="icon-btn" title="Refresh">↻</button></div>
-  </header>
-  <main>
-    <div class="chats-header"><div><h1>Chats</h1><p>Pick a conversation or start a new one.</p></div><button id="newChatBtn" class="btn primary">＋ New chat</button></div>
-    <nav id="chatTabs" class="chat-tabs" aria-label="Chats"><div class="muted">Loading chats…</div></nav>
-    <div id="error" class="error hidden"></div>
-    <section class="workspace">
-      <div class="chat-column">
-        <div class="chat-head"><div><h2 id="chatTitle">Welcome</h2><p id="chatMeta">Choose a chat to get started.</p></div><span id="chatStatus" class="status-pill">Ready</span></div>
-        <div id="messages" class="messages"><div class="empty"><div class="empty-icon">✳</div><h3>Your team, one chat at a time.</h3><p>Create a chat with the Manager to coordinate a project, or chat directly with an agent.</p><button class="btn primary" id="emptyNewBtn">＋ Create chat</button></div></div>
-        <form id="messageForm" class="composer"><textarea id="messageInput" rows="1" placeholder="Message the team…" disabled></textarea><div class="composer-bottom"><span>Enter to send · Shift + Enter for a new line</span><button id="sendBtn" class="btn primary" type="submit" disabled>Send <span>↑</span></button></div></form>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-row">
+        <div class="brand-mark"><span></span><span></span><span></span></div>
+        <div><div class="brand-name">orbit<span>team</span></div><div class="brand-caption">AI WORKSPACE</div></div>
+        <button class="icon-button sidebar-toggle" id="sidebarToggle" title="Collapse sidebar" aria-label="Collapse sidebar">☰</button>
       </div>
-      <aside class="side-column">
-        <section class="side-card"><div class="side-title"><h3>Team</h3><span id="agentCount">—</span></div><div id="agentList" class="agent-list"><p class="muted">Loading agents…</p></div></section>
-        <section class="side-card project-card"><div class="side-title"><div><h3>Playground</h3><p>Project files created by developers</p></div><button id="refreshProjects" class="icon-btn" title="Refresh projects">↻</button></div><div id="projectList" class="project-list"><p class="muted">Loading projects…</p></div><div id="fileBrowser" class="file-browser hidden"><div class="file-browser-head"><b id="fileProjectTitle">Project files</b><button id="closeFiles" class="icon-btn" title="Close">×</button></div><div class="file-layout"><div id="fileList" class="file-list"></div><div class="file-content-wrap"><div id="filePath" class="file-path">Select a file</div><pre id="fileContent" class="file-content">Choose a project file to read it here.</pre></div></div></div></section>
-        <section class="side-card"><div class="side-title"><h3>Latest activity</h3><span id="activityCount">0</span></div><div id="activityList" class="activity-list"><p class="muted">Agent handoffs and replies will appear here.</p></div></section>
-      </aside>
-    </section>
-  </main>
-  <div id="modal" class="modal-backdrop hidden"><form id="createForm" class="modal"><button type="button" id="closeModal" class="modal-close">×</button><div class="eyebrow">NEW CONVERSATION</div><h2>Create a chat</h2><p>Chats are saved and will stay available when you return.</p><label for="newTitle">Chat name</label><input id="newTitle" maxlength="160" placeholder="e.g. Build a calculator" autocomplete="off"><label for="chatMode">Chat type</label><select id="chatMode"><option value="manager">Manager — coordinate my team</option><option value="individual">One agent</option><option value="group">Group chat</option></select><div id="agentPickerWrap" class="hidden"><label for="modalAgents">Agent(s)</label><select id="modalAgents" multiple></select><small>Use Ctrl or Shift to select multiple agents.</small></div><button class="btn primary full" type="submit">Create chat</button></form></div>
+
+      <button class="new-chat-button" id="newChatButton"><span class="plus">＋</span><span>New conversation</span><kbd>⌘ K</kbd></button>
+
+      <div class="nav-label">WORKSPACE</div>
+      <button class="nav-item active" data-view="chat"><span class="nav-icon">◈</span> Team chat <span class="nav-pill">LIVE</span></button>
+      <button class="nav-item" data-view="playground"><span class="nav-icon">▧</span> Playground</button>
+      <button class="nav-item" data-view="activity"><span class="nav-icon">↗</span> Activity log</button>
+
+      <div class="sidebar-section">
+        <div class="section-heading"><span>YOUR CHATS</span><button class="tiny-button" id="refreshChats" title="Refresh chats">↻</button></div>
+        <div class="chat-list" id="chatList"><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="connection-line"><span class="status-dot" id="connectionDot"></span><span id="connectionText">Connecting to backend…</span></div>
+        <div class="user-card"><div class="avatar user-avatar">HS</div><div class="user-meta"><strong>Workspace owner</strong><small>Administrator</small></div><span class="online-dot"></span></div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="breadcrumb"><span class="crumb-muted">Workspace</span><span class="crumb-slash">/</span><strong id="pageTitle">Team chat</strong></div>
+        <div class="topbar-actions">
+          <div class="backend-chip"><span class="status-dot" id="topStatusDot"></span><span id="backendLabel">API · 8081</span></div>
+          <button class="icon-button" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">☼</button>
+        </div>
+      </header>
+
+      <section class="view active-view" id="chatView">
+        <div class="chat-layout">
+          <section class="conversation-column">
+            <div class="conversation-heading">
+              <div class="manager-heading">
+                <div class="avatar manager-avatar"><span>✦</span></div>
+                <div><h1 id="conversationTitle">Your AI team</h1><p id="conversationSubtitle">One message to the Manager. The team handles the rest.</p></div>
+              </div>
+              <div class="heading-actions">
+                <button class="outline-button" id="scrollLatestButton" title="Jump to latest message">↓ Latest</button>
+                <button class="outline-button" id="clearNoticeButton" title="Dismiss notices">Clear notice</button>
+              </div>
+            </div>
+
+            <div class="notice-bar hidden" id="noticeBar"><span class="notice-symbol">ⓘ</span><span id="noticeText"></span><button id="dismissNotice" aria-label="Dismiss">×</button></div>
+
+            <div class="message-scroll" id="messageScroll" aria-live="polite">
+              <div class="welcome-panel" id="welcomePanel">
+                <div class="welcome-orb"><div class="orb-core">✦</div><i></i><i></i><i></i></div>
+                <div class="eyebrow">YOUR PERSONAL AI TEAM</div>
+                <h2>Make something<br><span>remarkable.</span></h2>
+                <p>Tell the Manager what you want to build. Research, architecture, implementation and testing happen behind the scenes.</p>
+                <div class="suggestion-grid">
+                  <button class="suggestion-card" data-prompt="Build a simple To-Do list website with local storage."><span class="suggestion-icon violet">▤</span><span><strong>Build a To-Do app</strong><small>Responsive website · Local storage</small></span><span class="suggestion-arrow">↗</span></button>
+                  <button class="suggestion-card" data-prompt="Build a personal expense tracker website with charts and local storage."><span class="suggestion-icon blue">◒</span><span><strong>Create an expense tracker</strong><small>Transactions · Summary · Charts</small></span><span class="suggestion-arrow">↗</span></button>
+                  <button class="suggestion-card" data-prompt="Explain how this AI team project works, including APIs and function calls."><span class="suggestion-icon green">⌘</span><span><strong>Explain this project</strong><small>Understand the architecture</small></span><span class="suggestion-arrow">↗</span></button>
+                </div>
+              </div>
+              <div class="messages" id="messages"></div>
+              <div class="reading-indicator hidden" id="readingIndicator">New activity · <button id="showNewMessages">Show latest</button></div>
+            </div>
+
+            <div class="composer-wrap">
+              <form class="composer" id="messageForm">
+                <textarea id="messageInput" rows="1" placeholder="Message the Manager…  (Enter to send, Shift + Enter for a new line)" aria-label="Message the Manager"></textarea>
+                <div class="composer-footer">
+                  <div class="composer-hint"><span class="sparkle">✦</span> Manager routes your request to the right agents</div>
+                  <div class="composer-tools"><span class="shortcut-hint">SHIFT ↵ for new line</span><button class="send-button" id="sendButton" type="submit" aria-label="Send message"><span>Send</span><b>↑</b></button></div>
+                </div>
+              </form>
+              <div class="privacy-note">Your workspace · Messages and project files stay in your configured local backend.</div>
+            </div>
+          </section>
+
+          <aside class="team-rail">
+            <div class="rail-card team-card">
+              <div class="rail-title-row"><div><span class="eyebrow">THE CREW</span><h3>Your AI team</h3></div><span class="crew-count">5 agents</span></div>
+              <div class="agent-row"><div class="agent-avatar manager-avatar">✦</div><div class="agent-details"><strong>Manager</strong><small>Orchestrates the workflow</small></div><span class="agent-state ready">READY</span></div>
+              <div class="agent-row"><div class="agent-avatar researcher-avatar">⌕</div><div class="agent-details"><strong>Researcher</strong><small>Requirements & risks</small></div><span class="agent-state">ON CALL</span></div>
+              <div class="agent-row"><div class="agent-avatar architect-avatar">⌘</div><div class="agent-details"><strong>Architect</strong><small>Design & acceptance criteria</small></div><span class="agent-state">ON CALL</span></div>
+              <div class="agent-row"><div class="agent-avatar developer-avatar">{ }</div><div class="agent-details"><strong>Developer</strong><small>Writes project files</small></div><span class="agent-state">ON CALL</span></div>
+              <div class="agent-row"><div class="agent-avatar tester-avatar">✓</div><div class="agent-details"><strong>Tester</strong><small>Checks the implementation</small></div><span class="agent-state">ON CALL</span></div>
+              <div class="rail-footnote"><span class="status-dot"></span> Sequential workflow · local execution</div>
+            </div>
+            <div class="rail-card workflow-card">
+              <div class="rail-title-row"><div><span class="eyebrow">HOW IT WORKS</span><h3>Build pipeline</h3></div><span class="pipeline-icon">↗</span></div>
+              <div class="pipeline">
+                <div class="pipeline-step"><span class="step-marker">1</span><div><strong>Understand</strong><small>Manager classifies your request</small></div></div>
+                <div class="pipeline-connector"></div>
+                <div class="pipeline-step"><span class="step-marker">2</span><div><strong>Research & design</strong><small>Requirements become a plan</small></div></div>
+                <div class="pipeline-connector"></div>
+                <div class="pipeline-step"><span class="step-marker">3</span><div><strong>Implement</strong><small>Source files are written to disk</small></div></div>
+                <div class="pipeline-connector"></div>
+                <div class="pipeline-step"><span class="step-marker">4</span><div><strong>Verify</strong><small>Checks run and results are reported</small></div></div>
+              </div>
+            </div>
+            <div class="rail-card tip-card"><div class="tip-icon">✳</div><div><strong>Keep it simple</strong><p>Start with a clear request. The Manager uses sensible defaults and asks only when necessary.</p></div></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view secondary-view" id="playgroundView">
+        <div class="page-intro"><div><span class="eyebrow">PROJECT WORKSPACE</span><h1>Playground</h1><p>Browse the files generated by your AI team.</p></div><button class="outline-button" id="refreshProjects">↻ Refresh projects</button></div>
+        <div class="playground-layout">
+          <div class="panel project-panel"><div class="panel-heading"><div><h3>Projects</h3><p id="projectCount">Loading projects…</p></div></div><div id="projectList" class="project-list"><div class="empty-small">Loading projects…</div></div></div>
+          <div class="panel files-panel"><div class="panel-heading"><div><h3 id="filesHeading">Project files</h3><p id="filesSubheading">Choose a project to inspect its files.</p></div><span class="file-count" id="fileCount">0 files</span></div><div class="file-browser"><div class="file-list" id="fileList"><div class="empty-small">Select a project on the left.</div></div><div class="file-content"><div class="file-toolbar"><span class="file-dot"></span><span id="currentFileName">No file selected</span><button id="copyFileButton" class="tiny-button" disabled>Copy</button></div><pre><code id="fileContent">Select a file to read its contents.</code></pre></div></div></div>
+        </div>
+      </section>
+
+      <section class="view secondary-view" id="activityView">
+        <div class="page-intro"><div><span class="eyebrow">WORKFLOW HISTORY</span><h1>Activity log</h1><p>Recent messages and agent handoffs from your saved chats.</p></div><button class="outline-button" id="refreshActivity">↻ Refresh activity</button></div>
+        <div class="panel activity-panel"><div class="panel-heading"><div><h3>Recent activity</h3><p>Newest events first</p></div><span class="file-count" id="activityCount">0 events</span></div><div id="activityList" class="activity-list"><div class="empty-small">Loading activity…</div></div></div>
+      </section>
+
+      <footer class="global-footer"><span>ORBIT TEAM <span class="footer-separator">·</span> LOCAL AI WORKSPACE</span><span>Designed for focus, built for flow.</span></footer>
+    </main>
+  </div>
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
   <script src="app.js"></script>
 </body>
 </html>
