@@ -61,13 +61,14 @@
             </div>
 
             <div class="notice-bar hidden" id="noticeBar"><span class="notice-symbol">ⓘ</span><span id="noticeText"></span><button id="dismissNotice" aria-label="Dismiss">×</button></div>
+            <div class="workflow-filter-bar hidden" id="workflowFilterBar" aria-label="Filter team transcript"></div>
 
             <div class="message-scroll" id="messageScroll" aria-live="polite">
               <div class="welcome-panel" id="welcomePanel">
                 <div class="welcome-orb"><div class="orb-core">✦</div><i></i><i></i><i></i></div>
                 <div class="eyebrow">YOUR PERSONAL AI TEAM</div>
                 <h2>Make something<br><span>remarkable.</span></h2>
-                <p>Tell the Manager what you want to build. Research, architecture, implementation and testing happen behind the scenes.</p>
+                <p>Tell the Manager what you need. Follow the team rooms, inspect handoffs, and see saved agent results as the workflow progresses.</p>
                 <div class="suggestion-grid">
                   <button class="suggestion-card" data-prompt="Build a simple To-Do list website with local storage."><span class="suggestion-icon violet">▤</span><span><strong>Build a To-Do app</strong><small>Responsive website · Local storage</small></span><span class="suggestion-arrow">↗</span></button>
                   <button class="suggestion-card" data-prompt="Build a personal expense tracker website with charts and local storage."><span class="suggestion-icon blue">◒</span><span><strong>Create an expense tracker</strong><small>Transactions · Summary · Charts</small></span><span class="suggestion-arrow">↗</span></button>
@@ -102,14 +103,16 @@
             </div>
             <div class="rail-card workflow-card">
               <div class="rail-title-row"><div><span class="eyebrow">HOW IT WORKS</span><h3>Build pipeline</h3></div><span class="pipeline-icon">↗</span></div>
-              <div class="pipeline">
-                <div class="pipeline-step"><span class="step-marker">1</span><div><strong>Understand</strong><small>Manager classifies your request</small></div></div>
+              <div class="pipeline" id="pipelineSteps">
+                <div class="pipeline-step" data-stage="manager"><span class="step-marker">1</span><div><strong>Manager</strong><small>Classifies and coordinates</small><span class="stage-state">WAITING</span></div></div>
                 <div class="pipeline-connector"></div>
-                <div class="pipeline-step"><span class="step-marker">2</span><div><strong>Research & design</strong><small>Requirements become a plan</small></div></div>
+                <div class="pipeline-step" data-stage="researcher"><span class="step-marker">2</span><div><strong>Researcher</strong><small>Requirements and risks</small><span class="stage-state">WAITING</span></div></div>
                 <div class="pipeline-connector"></div>
-                <div class="pipeline-step"><span class="step-marker">3</span><div><strong>Implement</strong><small>Source files are written to disk</small></div></div>
+                <div class="pipeline-step" data-stage="architect"><span class="step-marker">3</span><div><strong>Architect</strong><small>Plan and acceptance criteria</small><span class="stage-state">WAITING</span></div></div>
                 <div class="pipeline-connector"></div>
-                <div class="pipeline-step"><span class="step-marker">4</span><div><strong>Verify</strong><small>Checks run and results are reported</small></div></div>
+                <div class="pipeline-step" data-stage="frontend_developer"><span class="step-marker">4</span><div><strong>Developer</strong><small>Writes source files to disk</small><span class="stage-state">WAITING</span></div></div>
+                <div class="pipeline-connector"></div>
+                <div class="pipeline-step" data-stage="tester"><span class="step-marker">5</span><div><strong>Tester</strong><small>Reviews the implementation</small><span class="stage-state">WAITING</span></div></div>
               </div>
             </div>
             <div class="rail-card tip-card"><div class="tip-icon">✳</div><div><strong>Keep it simple</strong><p>Start with a clear request. The Manager uses sensible defaults and asks only when necessary.</p></div></div>
@@ -126,7 +129,7 @@
       </section>
 
       <section class="view secondary-view" id="activityView">
-        <div class="page-intro"><div><span class="eyebrow">WORKFLOW HISTORY</span><h1>Activity log</h1><p>Recent messages and agent handoffs from your saved chats.</p></div><button class="outline-button" id="refreshActivity">↻ Refresh activity</button></div>
+        <div class="page-intro"><div><span class="eyebrow">WORKFLOW HISTORY</span><h1>Activity log</h1><p>Saved messages, agent handoffs, and recorded model requests/responses.</p></div><div class="activity-actions"><div class="activity-mode-toggle"><button class="activity-mode active" id="activityEventsButton" type="button">Events</button><button class="activity-mode" id="activityCallsButton" type="button">Model calls</button></div><button class="outline-button" id="refreshActivity">↻ Refresh</button></div></div>
         <div class="panel activity-panel"><div class="panel-heading"><div><h3>Recent activity</h3><p>Newest events first</p></div><span class="file-count" id="activityCount">0 events</span></div><div id="activityList" class="activity-list"><div class="empty-small">Loading activity…</div></div></div>
       </section>
 
