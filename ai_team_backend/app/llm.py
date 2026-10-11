@@ -5,7 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
-from config import settings
+from .config import settings
 
 
 # @lru_cache(maxsize=1)

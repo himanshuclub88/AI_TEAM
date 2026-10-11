@@ -23,12 +23,6 @@ class Settings:
     llm_api_key: str
     llm_base_url: str
     llm_model: str
-    gmail_credentials_file: Path
-    gmail_token_file: Path
-    output_file_json: Path
-    output_file_html: Path
-    state_file: Path
-    future_events_file: Path
     timezone: str
 
     @property
