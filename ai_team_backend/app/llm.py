@@ -57,6 +57,12 @@ def build_structured_chain(
         | parser
     )
 
+
+from pydantic import BaseModel
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.exceptions import OutputParserException
+
+
 def generate_reply(
     *,
     system_prompt: str,
@@ -69,23 +75,36 @@ def generate_reply(
         for msg in messages
     )
 
-    if response_model:
+    if response_model is not None:
         chain = build_structured_chain(
             system_prompt=system_prompt,
             output_model=response_model,
         )
-        return chain.invoke({"input": conversation})
 
-    class Reply(BaseModel):
-        reply: str
+        try:
+            return chain.invoke({"input": conversation})
+        except OutputParserException:
+            # Fallback: preserve the agent's reply even if parsing fails.
+            if "reply" not in response_model.model_fields:
+                raise
 
-    chain = build_structured_chain(
-        system_prompt=system_prompt,
-        output_model=Reply,
-    )
+            raw = get_llm().invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=conversation),
+            ])
 
-    result = chain.invoke({"input": conversation})
-    return result.reply
+            content = raw.content
+            if not isinstance(content, str):
+                raise ValueError("LLM returned non-text content during fallback.")
+
+            return response_model(reply=content)
+
+    raw = get_llm().invoke([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=conversation),
+    ])
+
+    return str(raw.content)
 
 
 
