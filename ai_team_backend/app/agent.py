@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -8,6 +9,17 @@ from pydantic import BaseModel, Field
 from . import llm
 from .schemas import Agent, Chat, Message, Task, utc_now
 from .storage import append_message, read_json, read_messages, write_json
+from . import workspace
+
+
+class GeneratedFile(BaseModel):
+    path: str = Field(description="Safe relative path inside the project folder")
+    content: str = Field(description="Complete UTF-8 file contents")
+
+
+class DeveloperWorkProduct(BaseModel):
+    reply: str = Field(description="Short status and implementation notes")
+    files: list[GeneratedFile] = Field(default_factory=list, description="Files this agent created or updated")
 
 
 class AgentDecision(BaseModel):
@@ -198,6 +210,120 @@ def _run_assigned_work(
     return respond_as_agent(agent, chat.id, task)
 
 
+
+def _update_task_record(task: Task, *, status: str, result: str | None = None) -> None:
+    tasks = read_json("tasks.json", [])
+    for index, raw in enumerate(tasks):
+        if raw.get("id") == task.id:
+            raw["status"] = status
+            raw["result"] = result
+            raw["updated_at"] = utc_now().isoformat()
+            tasks[index] = raw
+            write_json("tasks.json", tasks)
+            return
+
+
+def _run_workspace_agent(
+    *,
+    agent_id: str,
+    chat: Chat,
+    project_id: str,
+    title: str,
+    description: str,
+    allowed_extensions: set[str],
+    allowed_prefixes: tuple[str, ...] = (),
+    run_checks: bool = False,
+) -> tuple[Message, dict[str, Any] | None]:
+    agent = get_agent(agent_id)
+    if not agent or not agent.enabled:
+        raise ValueError(f"Agent '{agent_id}' is missing or disabled")
+
+    task = _create_task(chat.id, "manager", agent_id, title, description)
+    _save_message(
+        chat.id, "manager", f"Task assigned to {agent.name}: {title}\n{description}",
+        "task_handoff", task.id, {"recipient_ids": [agent_id], "project_id": project_id},
+    )
+    role_rules = {
+        "frontend_developer": "Create only frontend files such as index.html, style.css, and script.js. Do not create server.py unless explicitly required by the request.",
+        "backend_developer": "Create backend files only when the requirements need a backend. If a static frontend is sufficient, return no files and explain why.",
+        "tester": "Create tests only under tests/ (for example tests/test_app.py). Do not edit application source files. Then prepare the test plan.",
+    }.get(agent_id, "Create only files that belong to your role.")
+    system_prompt = (
+        f"You are {agent.name}. Your instructions: {agent.instructions}\n"
+        f"Project folder ID: {project_id}\n"
+        f"Allowed file extensions: {', '.join(sorted(allowed_extensions))}.\n"
+        f"Role restriction: {role_rules}\n"
+        "Return complete file contents in the files field. Keep files focused and small. "
+        "Use only relative file paths. Never include shell commands, run.cmd, batch scripts, "
+        "executables, secrets, or files outside the project. Do not claim tests ran; the backend runner handles checks."
+    )
+    messages = _agent_context(agent, chat.id, task)
+    messages.append({
+        "role": "user",
+        "content": (
+            f"Project request: {description}\n"
+            f"Current project files: {workspace.list_project_files(project_id)}\n"
+            "Create or update the files needed for your assignment. Return a concise reply and complete file contents."
+        ),
+    })
+    try:
+        result = llm.generate_reply(
+            system_prompt=system_prompt,
+            messages=messages,
+            response_model=DeveloperWorkProduct,
+        )
+        if isinstance(result, DeveloperWorkProduct):
+            product = result
+        elif isinstance(result, BaseModel):
+            product = DeveloperWorkProduct.model_validate(result.model_dump())
+        elif isinstance(result, dict):
+            product = DeveloperWorkProduct.model_validate(result)
+        else:
+            raise ValueError("The LLM did not return a structured file work product")
+
+        # The existing shared LLM adapter may fall back to putting raw model text in `reply`.
+        # Recover a JSON work product when possible without changing that shared adapter.
+        if not product.files:
+            try:
+                raw_payload = json.loads(product.reply)
+                if isinstance(raw_payload, dict) and isinstance(raw_payload.get("files"), list):
+                    product = DeveloperWorkProduct.model_validate(raw_payload)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        written: list[dict[str, Any]] = []
+        for item in product.files:
+            normalized = item.path.replace("\\", "/")
+            if allowed_prefixes and not any(normalized.startswith(prefix) for prefix in allowed_prefixes):
+                raise ValueError(f"{agent.name} cannot write this path: {normalized}")
+            written.append(workspace.write_project_file(
+                project_id, normalized, item.content, allowed_extensions=allowed_extensions,
+            ))
+
+        check_result = workspace.run_project_checks(project_id) if run_checks else None
+        reply = product.reply.strip() or f"{agent.name} completed its workspace task."
+        if written:
+            reply += "\n\nFiles written:\n" + "\n".join(f"- {item['path']} ({item['bytes']} bytes)" for item in written)
+        else:
+            reply += "\n\nNo files were needed for this assignment."
+        if check_result is not None:
+            reply += f"\n\nLocal checks: {check_result['status'].upper()}"
+            for check in check_result["checks"]:
+                reply += f"\n- {check['check']}: {check['status']}"
+                if check.get("output"):
+                    reply += f"\n{check['output'][-3000:]}"
+        saved = _save_message(
+            chat.id, agent.id, reply, "task_result", task.id,
+            {"project_id": project_id, "files_written": written, "test_status": check_result["status"] if check_result else None},
+        )
+        _update_task_record(task, status="completed" if not check_result or check_result["status"] != "failed" else "blocked", result=reply)
+        return saved, check_result
+    except Exception as exc:
+        error = f"{agent.name} workspace task failed: {type(exc).__name__}: {exc}"
+        _save_message(chat.id, agent.id, error, "task_result", task.id, {"project_id": project_id, "error": True})
+        _update_task_record(task, status="blocked", result=error)
+        raise
+
 def _is_build_request(text: str) -> bool:
     """Lightweight first-pass intent routing; replace with a classifier later."""
     text = text.lower()
@@ -253,6 +379,8 @@ def run_development_workflow(main_chat: Chat, request: str) -> list[Message]:
     so one request cannot trigger an unbounded chain of LLM calls.
     """
     project_key = f"{main_chat.id}:{uuid4().hex[:8]}"
+    project = workspace.create_project(request)
+    project_id = project["id"]
 
     research_chat = _find_or_create_workflow_chat(
         f"Research · {request[:48]}",
@@ -301,43 +429,47 @@ def run_development_workflow(main_chat: Chat, request: str) -> list[Message]:
     _append_context(development_chat, "manager", "Original request", request)
     _append_context(development_chat, "researcher", "Research findings", research_result.content)
     _append_context(development_chat, "architect", "Architecture plan", architecture_result.content)
-
-    developer_tasks = [
-        (
-            "frontend_developer",
-            "Implement frontend",
-            "Based on the architecture plan, define and implement the frontend work. If file-writing tools are unavailable, provide exact files and code needed; do not claim files were written.",
-        ),
-        (
-            "backend_developer",
-            "Implement backend",
-            "Based on the architecture plan, define and implement the backend work. If file-writing tools are unavailable, provide exact files and code needed; do not claim files were written.",
-        ),
-        (
-            "tester",
-            "Prepare test plan",
-            "Review the requirements and architecture, prepare acceptance tests, identify edge cases, and state what can be validated. Do not claim tests ran without execution tools.",
-        ),
-    ]
+    _append_context(development_chat, "manager", "Local Playground", f"Project ID: {project_id}\nWorkspace path: {workspace.project_file_path(project_id, 'project.json').parent}\nDevelopers must write actual project files using the workspace tools.")
 
     development_results: list[Message] = []
-    for agent_id, title, description in developer_tasks:
-        result = _run_assigned_work(
-            chat=development_chat,
-            agent_id=agent_id,
-            title=title,
-            description=description + f"\n\nProject request: {request}",
-        )
-        development_results.append(result)
+    front_result, _ = _run_workspace_agent(
+        agent_id="frontend_developer", chat=development_chat, project_id=project_id,
+        title="Implement frontend",
+        description=f"Build the frontend for this request: {request}\nArchitecture plan: {architecture_result.content}",
+        allowed_extensions={".html", ".css", ".js", ".json", ".md", ".svg"},
+    )
+    development_results.append(front_result)
+
+    back_result, _ = _run_workspace_agent(
+        agent_id="backend_developer", chat=development_chat, project_id=project_id,
+        title="Implement backend if required",
+        description=f"Review the frontend and architecture. Implement only a necessary backend for: {request}\nArchitecture plan: {architecture_result.content}\nCurrent files: {workspace.list_project_files(project_id)}",
+        allowed_extensions={".py", ".json", ".md", ".txt", ".toml", ".ini"},
+    )
+    development_results.append(back_result)
+
+    tester_result, test_result = _run_workspace_agent(
+        agent_id="tester", chat=development_chat, project_id=project_id,
+        title="Create tests and run local checks",
+        description=f"Inspect the actual files in project {project_id}. Create useful automated tests under tests/ where appropriate, then verify the project. Request: {request}\nCurrent files: {workspace.list_project_files(project_id)}",
+        allowed_extensions={".py", ".md", ".txt"},
+        allowed_prefixes=("tests/",),
+        run_checks=True,
+    )
+    development_results.append(tester_result)
+    run_cmd_path = workspace.generate_run_cmd(project_id)
 
     summary = (
         f"Project workflow started for: {request}\n\n"
         f"Research chat: {research_chat.id}\n"
         f"Architecture chat: {architecture_chat.id}\n"
-        f"Development group: {development_chat.id}\n\n"
-        "Research and architecture have been generated, and the development group has received "
-        "initial frontend, backend, and testing assignments. This starter coordinates agent "
-        "messages and tasks; it does not yet provide file-system/code-execution tools to developers."
+        f"Development group: {development_chat.id}\n"
+        f"Playground project: {project_id}\n"
+        f"Project folder: {workspace.project_file_path(project_id, 'project.json').parent}\n"
+        f"Run file: {run_cmd_path}\n"
+        f"Local checks: {test_result['status'].upper()}\n\n"
+        "Developer output has been written to the local Playground folder. The Tester ran the "
+        "available fixed syntax/unit checks; review the check output before considering the project complete."
     )
     return [_save_message(main_chat.id, "manager", summary, "task_result")]
 
