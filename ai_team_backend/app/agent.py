@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -258,12 +259,29 @@ def _run_workspace_agent(
         "executables, secrets, or files outside the project. Do not claim tests ran; the backend runner handles checks."
     )
     messages = _agent_context(agent, chat.id, task)
+    current_files = workspace.list_project_files(project_id)
+    file_contents: list[str] = []
+    # Give the Tester (and later developers) actual project content, not only filenames.
+    # Bound the context to avoid sending huge generated files back into every LLM call.
+    for file_info in current_files:
+        relative_path = file_info["path"]
+        if relative_path == "project.json" or relative_path.lower().endswith((".pyc",)):
+            continue
+        try:
+            content = workspace.read_project_file(project_id, relative_path)
+        except (OSError, ValueError):
+            continue
+        file_contents.append(f"--- FILE: {relative_path} ---\n{content[:12000]}")
     messages.append({
         "role": "user",
         "content": (
             f"Project request: {description}\n"
-            f"Current project files: {workspace.list_project_files(project_id)}\n"
-            "Create or update the files needed for your assignment. Return a concise reply and complete file contents."
+            f"Project ID: {project_id}\n"
+            f"Current project files: {current_files}\n"
+            + ("\nCURRENT FILE CONTENTS\n" + "\n\n".join(file_contents) if file_contents else "\nNo source files exist yet.")
+            + "\nCreate or update only the files needed for your assignment. Put all source code in the structured files field, NEVER in reply. "
+              "The reply must be a short handoff note: what you changed, relative file paths, and if relevant how the Tester should run/check it. "
+              "Do not paste code, markdown code fences, or full file contents into the reply."
         ),
     })
     try:
@@ -301,17 +319,28 @@ def _run_workspace_agent(
             ))
 
         check_result = workspace.run_project_checks(project_id) if run_checks else None
-        reply = product.reply.strip() or f"{agent.name} completed its workspace task."
-        if written:
-            reply += "\n\nFiles written:\n" + "\n".join(f"- {item['path']} ({item['bytes']} bytes)" for item in written)
+        # Keep chat readable: source code belongs in the Playground files, never in chat.
+        # Only retain a short, non-code handoff note from the model.
+        note = product.reply.strip()
+        note = re.sub(r"```[\s\S]*?```", "", note)
+        note = re.sub(r"(?m)^\s{0,3}(?:def |class |function |const |let |var |import |from |<(!DOCTYPE|html|script|style)|#include).*?$", "", note)
+        note = re.sub(r"\n{3,}", "\n\n", note)[:400].strip()
+        path_lines = "\n".join(f"- {item['path']}" for item in written) if written else "- No files created or changed"
+        if agent_id in {"frontend_developer", "backend_developer"}:
+            # Deterministic developer messages guarantee source code never appears in chat.
+            reply = f"Implementation files saved.\n\nProject: {project_id}\nFiles changed:\n{path_lines}\n\nHandoff to Tester: inspect the saved files, use run.cmd or the project's documented entry point, and report defects with the failing behavior and relevant file path."
         else:
-            reply += "\n\nNo files were needed for this assignment."
+            reply = f"{note or 'Workspace task finished.'}\n\nProject: {project_id}\nFiles changed:\n{path_lines}"
         if check_result is not None:
-            reply += f"\n\nLocal checks: {check_result['status'].upper()}"
+            reply += f"\n\nTest status: {check_result['status'].upper()}"
             for check in check_result["checks"]:
                 reply += f"\n- {check['check']}: {check['status']}"
-                if check.get("output"):
-                    reply += f"\n{check['output'][-3000:]}"
+            # Full output stays in a separate local log file rather than flooding chat.
+            (workspace.project_file_path(project_id, "test-results.txt", for_write=True)).write_text(
+                "\n\n".join(f"{item['check']} [{item['status']}]\n{item.get('output', '')}" for item in check_result["checks"]),
+                encoding="utf-8",
+            )
+            reply += "\nFull output: test-results.txt"
         saved = _save_message(
             chat.id, agent.id, reply, "task_result", task.id,
             {"project_id": project_id, "files_written": written, "test_status": check_result["status"] if check_result else None},
@@ -448,16 +477,27 @@ def run_development_workflow(main_chat: Chat, request: str) -> list[Message]:
     )
     development_results.append(back_result)
 
+    run_cmd_path = workspace.generate_run_cmd(project_id)
+    _append_context(
+        development_chat, "manager", "Tester handoff",
+        f"Project folder: {workspace.project_file_path(project_id, 'project.json').parent}\n"
+        f"Run entry point: {run_cmd_path}\n"
+        "Tester: read the real source files from the Playground, create tests under tests/, run the approved checks, and report only test summary, failing behavior, and file paths in chat. Keep full logs in test-results.txt.",
+    )
     tester_result, test_result = _run_workspace_agent(
         agent_id="tester", chat=development_chat, project_id=project_id,
-        title="Create tests and run local checks",
-        description=f"Inspect the actual files in project {project_id}. Create useful automated tests under tests/ where appropriate, then verify the project. Request: {request}\nCurrent files: {workspace.list_project_files(project_id)}",
+        title="Inspect project, create tests, and run checks",
+        description=(
+            f"Inspect the actual source file contents for project {project_id}, not just filenames. "
+            f"The project entry point is {run_cmd_path}. Read it and the application files, then create useful tests under tests/ where appropriate. "
+            f"Run the available approved checks. Report concise test results and file paths only; do not paste source code into chat. Request: {request}\n"
+            f"Current files: {workspace.list_project_files(project_id)}"
+        ),
         allowed_extensions={".py", ".md", ".txt"},
         allowed_prefixes=("tests/",),
         run_checks=True,
     )
     development_results.append(tester_result)
-    run_cmd_path = workspace.generate_run_cmd(project_id)
 
     summary = (
         f"Project workflow started for: {request}\n\n"
