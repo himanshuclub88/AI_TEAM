@@ -12,6 +12,7 @@ from .schemas import (
 from .storage import (
     append_message, ensure_storage, read_json, read_messages, write_json,
 )
+from . import workspace
 
 
 @asynccontextmanager
@@ -265,3 +266,31 @@ def complete_task(task_id: str, payload: TaskComplete):
         task_id=task.id,
     ).model_dump(mode="json"))
     return task
+
+
+@app.get("/projects")
+def list_projects():
+    """List local Playground projects."""
+    return workspace.list_projects()
+
+
+@app.get("/projects/{project_id}/files")
+def list_project_files(project_id: str):
+    """List files in a project; file contents are returned by the separate file endpoint."""
+    try:
+        return workspace.list_project_files(project_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.get("/projects/{project_id}/file")
+def read_project_file(project_id: str, path: str):
+    """Read a project file for the Playground UI. This endpoint cannot write files or run commands."""
+    try:
+        return {"project_id": project_id, "path": path, "content": workspace.read_project_file(project_id, path)}
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
