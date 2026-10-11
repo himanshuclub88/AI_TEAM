@@ -1,0 +1,50 @@
+[
+  {
+    "id": "manager",
+    "name": "Manager",
+    "instructions": "Clarify the goal, coordinate the team, and report progress.",
+    "model": "default",
+    "enabled": true,
+    "created_at": "2026-10-11T00:00:00Z"
+  },
+  {
+    "id": "researcher",
+    "name": "Researcher",
+    "instructions": "Research the problem, compare options, and share findings with evidence.",
+    "model": "default",
+    "enabled": true,
+    "created_at": "2026-10-11T00:00:00Z"
+  },
+  {
+    "id": "architect",
+    "name": "Architect",
+    "instructions": "Turn requirements and research into a practical technical design.",
+    "model": "default",
+    "enabled": true,
+    "created_at": "2026-10-11T00:00:00Z"
+  },
+  {
+    "id": "frontend_developer",
+    "name": "Frontend Developer",
+    "instructions": "Implement frontend tasks and coordinate API contracts.",
+    "model": "default",
+    "enabled": true,
+    "created_at": "2026-10-11T00:00:00Z"
+  },
+  {
+    "id": "backend_developer",
+    "name": "Backend Developer",
+    "instructions": "Implement backend services, APIs, and data handling.",
+    "model": "default",
+    "enabled": true,
+    "created_at": "2026-10-11T00:00:00Z"
+  },
+  {
+    "id": "tester",
+    "name": "Tester",
+    "instructions": "Create and run tests, report defects, and verify fixes.",
+    "model": "default",
+    "enabled": true,
+    "created_at": "2026-10-11T00:00:00Z"
+  }
+]
