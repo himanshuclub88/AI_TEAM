@@ -45,7 +45,7 @@ rem ============================================================
 rem Position Backend and Frontend windows 50/50
 rem ============================================================
 
-timeout /t 2 /nobreak >nul
+timeout /t 5 /nobreak >nul
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.Windows.Forms; $code = 'using System; using System.Runtime.InteropServices; public class Win32 { [DllImport(\"user32.dll\")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags); [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); }'; Add-Type -TypeDefinition $code; $screen=[System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $width=[int]($screen.Width/2); $height=$screen.Height; $backend=(Get-Process cmd | Where-Object {$_.MainWindowTitle -eq '%PROJECT_NAME% - Backend'} | Select-Object -First 1); $frontend=(Get-Process cmd | Where-Object {$_.MainWindowTitle -eq '%PROJECT_NAME% - Frontend'} | Select-Object -First 1); if($backend){[Win32]::ShowWindow($backend.MainWindowHandle,3); [Win32]::SetWindowPos($backend.MainWindowHandle,[IntPtr]::Zero,$width,0,$width,$height,0x0040)}; if($frontend){[Win32]::ShowWindow($frontend.MainWindowHandle,3); [Win32]::SetWindowPos($frontend.MainWindowHandle,[IntPtr]::Zero,0,0,$width,$height,0x0040)}"
 
