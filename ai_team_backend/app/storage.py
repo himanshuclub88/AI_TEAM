@@ -16,6 +16,7 @@ def ensure_storage() -> None:
         ("agents.json", []),
         ("chats.json", []),
         ("tasks.json", []),
+        ("llm_calls.json", []),
     ):
         path = DATA_DIR / name
         if not path.exists():
@@ -86,3 +87,22 @@ def update_record(filename: str, record_id: str, updated: dict[str, Any]) -> dic
                 write_json(filename, records)
                 return updated
     return None
+
+
+def append_json_record(name: str, record: dict[str, Any]) -> dict[str, Any]:
+    """Append one record to a JSON array while holding the storage lock."""
+    path = DATA_DIR / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _LOCK:
+        if path.exists():
+            try:
+                records = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"Invalid JSON in {path}") from exc
+        else:
+            records = []
+        if not isinstance(records, list):
+            raise RuntimeError(f"Expected a JSON array in {path}")
+        records.append(record)
+        write_json(name, records)
+    return record

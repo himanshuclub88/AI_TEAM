@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
@@ -9,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from . import llm, workspace
 from .schemas import Agent, Chat, Message, Task, utc_now
-from .storage import append_message, read_json, read_messages, write_json
+from .storage import append_json_record, append_message, read_json, read_messages, write_json
 
 
 # Each agent has one small, explicit Pydantic contract. The orchestrator uses
@@ -174,6 +175,21 @@ def _decode_result(result: Any, model: type[BaseModel]) -> BaseModel:
     return value
 
 
+def _json_safe(value: Any) -> Any:
+    """Convert model results into JSON-compatible values for local audit logs."""
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, type) and issubclass(value, BaseModel):
+        return value.__name__
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
 def _ask(
     agent_id: str,
     chat_id: str,
@@ -184,18 +200,56 @@ def _ask(
     agent = get_agent(agent_id)
     if not agent or not agent.enabled:
         raise ValueError(f"Agent '{agent_id}' is missing or disabled")
-    result = llm.generate_reply(
-        system_prompt=(
-            f"You are {agent.name}, agent id {agent.id}.\n"
-            f"Role instructions: {agent.instructions}\n\n"
-            f"{system_prompt}\n\n"
-            "Follow the Pydantic response schema exactly. Use sensible defaults rather than asking the user questions "
-            "that another team agent can decide. Never claim files were written or commands were run unless true."
-        ),
-        messages=_history(chat_id) + [{"role": "user", "content": user_prompt}],
-        response_model=response_model,
+
+    call_id = f"llmcall_{uuid4().hex[:16]}"
+    started_at = utc_now().isoformat()
+    started_clock = time.perf_counter()
+    full_system_prompt = (
+        f"You are {agent.name}, agent id {agent.id}.\n"
+        f"Role instructions: {agent.instructions}\n\n"
+        f"{system_prompt}\n\n"
+        "Follow the Pydantic response schema exactly. Use sensible defaults rather than asking the user questions "
+        "that another team agent can decide. Never claim files were written or commands were run unless true."
     )
-    return _decode_result(result, response_model)
+    messages = _history(chat_id) + [{"role": "user", "content": user_prompt}]
+    request_record = {
+        "call_id": call_id,
+        "started_at": started_at,
+        "agent_id": agent.id,
+        "agent_name": agent.name,
+        "configured_agent_model": agent.model,
+        "runtime_model": getattr(getattr(llm, "settings", None), "llm_model", None),
+        "chat_id": chat_id,
+        "response_schema": response_model.model_json_schema(),
+        "request": {"system_prompt": full_system_prompt, "messages": messages},
+    }
+    adapter_response: Any = None
+    try:
+        adapter_response = llm.generate_reply(
+            system_prompt=full_system_prompt,
+            messages=messages,
+            response_model=response_model,
+        )
+        validated_response = _decode_result(adapter_response, response_model)
+        append_json_record("llm_calls.json", {
+            **request_record,
+            "finished_at": utc_now().isoformat(),
+            "duration_ms": round((time.perf_counter() - started_clock) * 1000, 2),
+            "status": "success",
+            "adapter_response": _json_safe(adapter_response),
+            "validated_response": _json_safe(validated_response),
+        })
+        return validated_response
+    except Exception as exc:
+        append_json_record("llm_calls.json", {
+            **request_record,
+            "finished_at": utc_now().isoformat(),
+            "duration_ms": round((time.perf_counter() - started_clock) * 1000, 2),
+            "status": "error",
+            "adapter_response": _json_safe(adapter_response) if adapter_response is not None else None,
+            "error": {"type": type(exc).__name__, "message": str(exc)},
+        })
+        raise
 
 
 def _record_agent_result(chat: Chat, agent_id: str, task: Task, reply: str, metadata: dict[str, Any] | None = None) -> Message:
@@ -319,14 +373,40 @@ def _run_tester(chat: Chat, project_id: str, request: str, architecture: Archite
     prompt = (
         f"User request: {request}\nAcceptance criteria: {architecture.acceptance_criteria}\n"
         f"Actual project files:\n{_project_file_contents(project_id)}\n\n"
-        "Review the real source code. Create useful automated tests or a TEST_REPORT.md under tests/ or project root. "
+        "Review the real source code. Create useful automated tests and/or a TEST_REPORT.md under tests/. "
         "Do not modify app source files. Include concrete test cases, expected outcomes, and known limitations. "
         "Return any files in files with full contents; do not claim commands were run."
     )
     try:
         result = _ask("tester", chat.id, "Inspect source files and produce test artifacts. Be honest about what can be verified.", prompt, TesterResult)
         assert isinstance(result, TesterResult)
-        written = _write_agent_files(project_id, result.files, {".py", ".md", ".txt"}, prefixes=("tests/",))
+        # Tester artifacts must live under tests/. Some models ignore the requested
+        # prefix and return TEST_REPORT.md at the project root; normalize that path
+        # instead of aborting the entire workflow.
+        normalized_test_files: list[GeneratedFile] = []
+        for item in result.files:
+            # Normalize Windows separators and keep every Tester artifact inside tests/.
+            path = item.path.replace("\\\\", "/").replace("\\", "/").lstrip("/")
+            parts = [part for part in path.split("/") if part not in {"", "."}]
+            if not parts or any(part == ".." for part in parts):
+                raise ValueError(f"Invalid Tester artifact path: {item.path}")
+            if parts[0].lower() == "tests":
+                path = "tests/" + "/".join(parts[1:])
+            else:
+                # Models sometimes return TEST_REPORT.md without the requested folder.
+                path = "tests/" + parts[-1]
+            if path == "tests/":
+                raise ValueError(f"Invalid Tester artifact path: {item.path}")
+            normalized_test_files.append(GeneratedFile(path=path, content=item.content))
+
+        if not normalized_test_files:
+            raise ValueError("Tester returned no test files or test report; refusing to report testing as complete.")
+
+        # JavaScript test files are allowed only under tests/; the prefix check
+        # prevents the Tester from changing the application's source files.
+        written = _write_agent_files(
+            project_id, normalized_test_files, {".py", ".md", ".txt", ".js"}, prefixes=("tests/",)
+        )
         checks = workspace.run_project_checks(project_id)
         report = {
             "project_id": project_id,

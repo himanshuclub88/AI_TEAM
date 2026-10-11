@@ -221,6 +221,14 @@ def list_tasks():
     return [Task.model_validate(task) for task in read_json("tasks.json", [])]
 
 
+@app.get("/llm-calls")
+def list_llm_calls(limit: int = 50):
+    """Return recent model-call request/response records for the local activity UI."""
+    safe_limit = max(1, min(int(limit), 200))
+    calls = read_json("llm_calls.json", [])
+    return list(reversed(calls[-safe_limit:]))
+
+
 @app.get("/tasks/{task_id}", response_model=Task)
 def get_task(task_id: str):
     task = _get_task(task_id)
