@@ -12,6 +12,7 @@ const state = {
   activeProjectId: null,
   projectFiles: [],
   activeFilePath: null,
+  activeFileContent: '',
   currentView: 'chat',
   sending: false,
   pollingTimer: null,
@@ -463,6 +464,7 @@ async function selectProject(projectId) {
   $('#filesSubheading').textContent = projectId;
   $('#fileList').innerHTML = '<div class="empty-small">Loading files…</div>';
   $('#fileContent').textContent = 'Select a file to read its contents.';
+  setFileViewerMode('code');
   $('#currentFileName').textContent = 'No file selected';
   try {
     state.projectFiles = await api(`/projects/${encodeURIComponent(projectId)}/files`) || [];
@@ -494,12 +496,79 @@ async function readProjectFile(path) {
     const result = await api(`/projects/${encodeURIComponent(state.activeProjectId)}/file?path=${encodeURIComponent(path)}`);
     // Ignore stale file response if user clicked another file while this request was in flight.
     if (state.activeFilePath !== path) return;
-    $('#fileContent').textContent = result.content ?? '';
+    const content = result.content ?? '';
+    renderProjectFile(path, content);
     $('#copyFileButton').disabled = false;
   } catch (error) {
     $('#fileContent').textContent = `Could not read this file.\n${error.message}`;
+    $('#fileMarkdownPreview').classList.add('hidden');
+    $('#fileCodePane').classList.remove('hidden');
   }
 }
+function setFileViewerMode(mode) {
+  const markdown = mode === 'markdown' && !$('#fileMarkdownViewButton').classList.contains('hidden');
+  $('#fileCodePane').classList.toggle('hidden', markdown);
+  $('#fileMarkdownPreview').classList.toggle('hidden', !markdown);
+  $('#fileCodeViewButton').classList.toggle('active', !markdown);
+  $('#fileMarkdownViewButton').classList.toggle('active', markdown);
+}
+function escapeCodeHtml(value) {
+  return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+function highlightCodeLine(line, extension) {
+  const escaped = escapeCodeHtml(line);
+  if (['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx'].includes(extension)) {
+    return escaped.replace(/(&quot;.*?&quot;|&#39;.*?&#39;|`[^`]*`|\/\/.*$|\b(?:const|let|var|function|return|if|else|for|while|class|new|async|await|import|from|export|default|throw|try|catch|true|false|null|undefined|this|typeof|of|in)\b|\b\d+(?:\.\d+)?\b)/g, token => {
+      let cls = 'tok-keyword';
+      if (/^(?:&quot;|&#39;|`)/.test(token)) cls = 'tok-string';
+      else if (token.startsWith('//')) cls = 'tok-comment';
+      else if (/^\d/.test(token)) cls = 'tok-number';
+      else if (/^(?:true|false|null|undefined)$/.test(token)) cls = 'tok-literal';
+      return `<span class="${cls}">${token}</span>`;
+    });
+  }
+  if (['.json'].includes(extension)) return escaped.replace(/(&quot;.*?&quot;)(\s*:)?/g, (m, str, colon) => `<span class="${colon ? 'tok-key' : 'tok-string'}">${str}</span>${colon || ''}`).replace(/\b(true|false|null)\b/g, '<span class="tok-literal">$1</span>').replace(/:\s*(-?\d+(?:\.\d+)?)/g, ': <span class="tok-number">$1</span>');
+  if (['.py'].includes(extension)) return escaped.replace(/(#.*$|&quot;.*?&quot;|&#39;.*?&#39;|\b(?:def|class|return|if|elif|else|for|while|in|import|from|as|try|except|with|True|False|None|async|await|pass|raise)\b|\b\d+(?:\.\d+)?\b)/g, token => `<span class="${token.startsWith('#') ? 'tok-comment' : /^(?:&quot;|&#39;)/.test(token) ? 'tok-string' : /^\d/.test(token) ? 'tok-number' : 'tok-keyword'}">${token}</span>`);
+  if (['.css'].includes(extension)) return escaped.replace(/([.#]?[\w-]+)(\s*\{)|([\w-]+)(\s*:)|(&quot;.*?&quot;|&#39;.*?&#39;|\/\*.*?\*\/)/g, (m, selector, brace, prop, colon, string) => string ? `<span class="tok-string">${string}</span>` : selector ? `<span class="tok-keyword">${selector}</span>${brace}` : `<span class="tok-key">${prop}</span>${colon}`);
+  if (['.html', '.htm', '.svg', '.xml'].includes(extension)) return escaped.replace(/(&lt;\/?[\w-]+|&gt;|\b[\w-]+(?==)|&quot;.*?&quot;|&#39;.*?&#39;)/g, token => `<span class="${token.startsWith('&lt;') || token === '&gt;' ? 'tok-keyword' : /^(?:&quot;|&#39;)/.test(token) ? 'tok-string' : 'tok-key'}">${token}</span>`);
+  return escaped;
+}
+function renderMarkdown(source) {
+  const inline = (text) => escapeCodeHtml(text)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  const lines = String(source).replace(/\r/g, '').split('\n');
+  const out = []; let paragraph = []; let listType = null; let inCode = false; let code = [];
+  const flushParagraph = () => { if (paragraph.length) { out.push(`<p>${inline(paragraph.join(' '))}</p>`); paragraph = []; } };
+  const flushList = () => { if (listType) { out.push(`</${listType}>`); listType = null; } };
+  for (const line of lines) {
+    if (/^```/.test(line.trim())) { flushParagraph(); flushList(); if (inCode) { out.push(`<pre><code>${escapeCodeHtml(code.join('\n'))}</code></pre>`); code = []; } inCode = !inCode; continue; }
+    if (inCode) { code.push(line); continue; }
+    if (!line.trim()) { flushParagraph(); flushList(); continue; }
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) { flushParagraph(); flushList(); const level = heading[1].length; out.push(`<h${level}>${inline(heading[2])}</h${level}>`); continue; }
+    const item = line.match(/^\s*[-*+]\s+(.+)$/);
+    const numbered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (item || numbered) { flushParagraph(); const nextType = item ? 'ul' : 'ol'; if (listType !== nextType) { flushList(); out.push(`<${nextType}>`); listType = nextType; } out.push(`<li>${inline((item || numbered)[1])}</li>`); continue; }
+    if (/^>\s?/.test(line)) { flushParagraph(); flushList(); out.push(`<blockquote>${inline(line.replace(/^>\s?/, ''))}</blockquote>`); continue; }
+    flushList(); paragraph.push(line.trim());
+  }
+  flushParagraph(); flushList(); if (inCode) out.push(`<pre><code>${escapeCodeHtml(code.join('\n'))}</code></pre>`);
+  return out.join('') || '<p class="markdown-empty">This Markdown file is empty.</p>';
+}
+function renderProjectFile(path, content) {
+  state.activeFileContent = String(content);
+  const ext = (String(path).match(/\.[^.\/]+$/)?.[0] || '').toLowerCase();
+  const isMarkdown = ['.md', '.markdown', '.mdown'].includes(ext);
+  $('#fileMarkdownViewButton').classList.toggle('hidden', !isMarkdown);
+  $('#fileCodeViewButton').classList.remove('hidden');
+  $('#fileContent').innerHTML = String(content).split('\n').map((line, index) => `<span class="code-line"><span class="line-number">${index + 1}</span><span class="line-source">${highlightCodeLine(line, ext) || '&nbsp;'}</span></span>`).join('');
+  $('#fileMarkdownPreview').innerHTML = isMarkdown ? renderMarkdown(content) : '';
+  setFileViewerMode('code');
+}
+
 function projectHasIndexHtml(projectId = state.activeProjectId) {
   if (!projectId) return false;
   return state.projectFiles.some(file => {
@@ -779,8 +848,10 @@ function initEvents() {
     const item = event.target.closest('[data-file-path]');
     if (item) readProjectFile(item.dataset.filePath);
   });
+  $('#fileCodeViewButton').addEventListener('click', () => setFileViewerMode('code'));
+  $('#fileMarkdownViewButton').addEventListener('click', () => setFileViewerMode('markdown'));
   $('#copyFileButton').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText($('#fileContent').textContent); toast('File contents copied.'); }
+    try { await navigator.clipboard.writeText(state.activeFileContent ?? $('#fileContent').textContent); toast('File contents copied.'); }
     catch { toast('Clipboard access is unavailable in this browser.', 'error'); }
   });
   $('#refreshActivity').addEventListener('click', loadActivity);
