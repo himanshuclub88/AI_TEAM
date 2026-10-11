@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Team</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">✳</div><div><strong>AI Team</strong><small>Workspace</small></div></div>
+      <button id="newChatBtn" class="new-chat">＋ <span>New chat</span></button>
+      <div class="section-label">YOUR CHATS</div>
+      <div id="chatList" class="chat-list"></div>
+      <div class="sidebar-bottom">
+        <label for="apiBase">Backend URL</label>
+        <input id="apiBase" value="http://127.0.0.1:8000" spellcheck="false">
+        <button id="connectBtn" class="connect-btn">Connect</button>
+        <div id="connectionState" class="connection-state"><span class="status-dot"></span> Not connected</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="mobile-brand">✳ AI Team</div>
+        <div class="chat-heading"><strong id="chatTitle">New chat</strong><span id="chatSubtitle">Choose an agent and start a conversation</span></div>
+        <div class="top-actions">
+          <span class="mode-pill"><span class="status-dot"></span> Local workspace</span>
+        </div>
+      </header>
+
+      <section class="setup-bar">
+        <div class="field">
+          <label for="chatType">Chat type</label>
+          <select id="chatType"><option value="individual">Individual chat</option><option value="group">Group chat</option></select>
+        </div>
+        <div class="field agent-field">
+          <label for="agentSelect">Participants</label>
+          <select id="agentSelect" multiple aria-label="Choose agents"></select>
+          <small id="participantHint">Select one agent for an individual chat.</small>
+        </div>
+        <button id="createChatBtn" class="primary-btn">Create chat</button>
+      </section>
+
+      <section id="welcome" class="welcome">
+        <div class="welcome-icon">✳</div>
+        <p class="eyebrow">YOUR AI WORKSPACE</p>
+        <h1>Build something<br><span>together.</span></h1>
+        <p class="welcome-copy">Chat with one agent or bring your AI team into a shared conversation.</p>
+        <div class="suggestions">
+          <button class="suggestion" data-prompt="Help me research this idea and identify the main requirements."><span>⌕</span><span><b>Research an idea</b><small>Explore requirements and options</small></span><span class="suggestion-arrow">↗</span></button>
+          <button class="suggestion" data-prompt="Help me design a technical architecture for a new application."><span>◇</span><span><b>Design an architecture</b><small>Turn an idea into a technical plan</small></span><span class="suggestion-arrow">↗</span></button>
+          <button class="suggestion" data-prompt="Help me plan development and testing for an application."><span>⌘</span><span><b>Plan development</b><small>Coordinate developers and testing</small></span><span class="suggestion-arrow">↗</span></button>
+        </div>
+      </section>
+
+      <section id="messages" class="messages hidden" aria-live="polite"></section>
+
+      <div class="composer-wrap">
+        <div id="errorBanner" class="error-banner hidden"></div>
+        <form id="messageForm" class="composer">
+          <textarea id="messageInput" rows="1" placeholder="Message your AI team..." autocomplete="off"></textarea>
+          <div class="composer-footer"><span><kbd>Enter</kbd> to send · <kbd>Shift + Enter</kbd> for a new line</span><button id="sendBtn" type="submit" aria-label="Send message">↑</button></div>
+        </form>
+        <p class="disclaimer">AI responses can be incorrect. Review important decisions and generated work.</p>
+      </div>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
