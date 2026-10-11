@@ -293,13 +293,13 @@ def _run_architect(chat: Chat, request: str, research: ResearchResult) -> Archit
         raise
 
 
-def _write_agent_files(project_id: str, files: list[GeneratedFile], extensions: set[str], prefixes: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+def _write_agent_files(project_id: str, files: list[GeneratedFile], extensions: set[str], prefixes: tuple[str, ...] = (), *, unrestricted_agent_write: bool = False) -> list[dict[str, Any]]:
     written: list[dict[str, Any]] = []
     for item in files:
         path = item.path.replace("\\", "/")
         if prefixes and not any(path.startswith(prefix) for prefix in prefixes):
             raise ValueError(f"File path not allowed for this role: {path}")
-        written.append(workspace.write_project_file(project_id, path, item.content, allowed_extensions=extensions))
+        written.append(workspace.write_project_file(project_id, path, item.content, allowed_extensions=extensions, unrestricted_agent_write=unrestricted_agent_write))
     return written
 
 
@@ -373,39 +373,31 @@ def _run_tester(chat: Chat, project_id: str, request: str, architecture: Archite
     prompt = (
         f"User request: {request}\nAcceptance criteria: {architecture.acceptance_criteria}\n"
         f"Actual project files:\n{_project_file_contents(project_id)}\n\n"
-        "Review the real source code. Create useful automated tests and/or a TEST_REPORT.md under tests/. "
-        "Do not modify app source files. Include concrete test cases, expected outcomes, and known limitations. "
+        "Review the real source code and perform testing. You have full write permission inside this project's folder: "
+        "you may create, update, or overwrite files of any extension and in any subfolder, including application source, "
+        "configuration, JSON, test artifacts, and run scripts when useful. Keep all paths relative to the project root. "
+        "Do not write outside this project folder. Include concrete test cases, expected outcomes, and known limitations. "
         "Return any files in files with full contents; do not claim commands were run."
     )
     try:
         result = _ask("tester", chat.id, "Inspect source files and produce test artifacts. Be honest about what can be verified.", prompt, TesterResult)
         assert isinstance(result, TesterResult)
-        # Tester artifacts must live under tests/. Some models ignore the requested
-        # prefix and return TEST_REPORT.md at the project root; normalize that path
-        # instead of aborting the entire workflow.
+        # Tester has elevated write access within this project only.
+        # Normalize separators, reject traversal, and retain valid subfolder paths.
         normalized_test_files: list[GeneratedFile] = []
         for item in result.files:
-            # Normalize Windows separators and keep every Tester artifact inside tests/.
-            path = item.path.replace("\\\\", "/").replace("\\", "/").lstrip("/")
+            path = item.path.replace("\\\\", "/").replace("\\", "/").strip()
+            path = path.lstrip("/")
             parts = [part for part in path.split("/") if part not in {"", "."}]
             if not parts or any(part == ".." for part in parts):
                 raise ValueError(f"Invalid Tester artifact path: {item.path}")
-            if parts[0].lower() == "tests":
-                path = "tests/" + "/".join(parts[1:])
-            else:
-                # Models sometimes return TEST_REPORT.md without the requested folder.
-                path = "tests/" + parts[-1]
-            if path == "tests/":
-                raise ValueError(f"Invalid Tester artifact path: {item.path}")
-            normalized_test_files.append(GeneratedFile(path=path, content=item.content))
+            normalized_test_files.append(GeneratedFile(path="/".join(parts), content=item.content))
 
         if not normalized_test_files:
             raise ValueError("Tester returned no test files or test report; refusing to report testing as complete.")
 
-        # JavaScript test files are allowed only under tests/; the prefix check
-        # prevents the Tester from changing the application's source files.
         written = _write_agent_files(
-            project_id, normalized_test_files, {".py", ".md", ".txt", ".js"}, prefixes=("tests/",)
+            project_id, normalized_test_files, set(), unrestricted_agent_write=True
         )
         checks = workspace.run_project_checks(project_id)
         report = {
