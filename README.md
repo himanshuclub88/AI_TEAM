@@ -1,54 +1,133 @@
-# AI Team — Local Playground update
+# Orbit AI Team
 
-This patch adds a local project workspace and basic Windows run/test support without changing the existing frontend or schemas.
+**A local-first, multi-agent AI workspace for turning project ideas into code, documentation, and test plans.**
 
-## Files to install
+Orbit AI Team coordinates specialized AI agents through a project workflow and organizes generated artifacts in a Playground where you can inspect project files.
 
-Copy these three files into your existing backend package (the folder containing your current `agent.py`, `main.py`, `schemas.py`, `storage.py`, and `llm.py`):
+> **Note:** Capabilities depend on the current backend implementation, configured language model, and tools installed on your computer. This README distinguishes the described workflow from suggested future features.
 
-- `app/agent.py` → replace your existing `agent.py`
-- `app/main.py` → replace your existing `main.py`
-- `app/workspace.py` → add this new file
+## What Orbit AI Team can do
 
-Do **not** replace `schemas.py`, `storage.py`, `llm.py`, or your frontend.
+### Coordinate specialized agents
 
-## What it does
+- **Manager:** Coordinates the workflow and delegates tasks.
+- **Researcher:** Helps analyze the request and organize requirements.
+- **Architect:** Plans the structure and technical approach.
+- **Developer:** Generates application source files and supporting documentation.
+- **Tester:** Reviews generated files, prepares test plans, and runs checks supported by the environment.
 
-- Creates each generated project under `<backend-root>/playground/<project-id>/`.
-- Lets the Frontend Developer return and write frontend source files; the Backend Developer can write backend files when needed.
-- Lets the Tester create test files under `tests/` and run fixed checks from backend code.
-- Runs Python syntax checks with the current Python interpreter and JavaScript syntax checks with `node --check` if Node.js is installed.
-- Runs Python `unittest` discovery when `tests/test*.py` files exist.
-- Generates `run.cmd` itself: it opens `index.html` for static web projects, or runs `python server.py` when `server.py` exists.
-- Adds read-only APIs for the UI: `GET /projects`, `GET /projects/{project_id}/files`, and `GET /projects/{project_id}/file?path=index.html`.
-- Marks research/architecture and workspace task records completed or blocked based on the result.
+The quality and completeness of results depend on the request, model output, and available tools.
 
-## Start the backend
+### Generate project files
 
-Use the same command you already use for the backend. For example, from the folder above the `app` package:
+Depending on the task and agent permissions, Orbit can generate artifacts such as:
 
-```powershell
-uvicorn app.main:app --reload
-```
+- HTML, CSS, and JavaScript for web applications
+- Python scripts and utilities
+- Markdown documentation and test plans
+- JSON configuration or project metadata
+- Other supported project files
 
-Use your actual package import path if it differs.
+### Browse projects in Playground
 
-## Important limitations
+The Playground lets you:
 
-- Agent calls are still synchronous. The HTTP request waits for the workflow and model calls.
-- The file output is based on the LLM returning structured `files` entries. If the model fails to return valid structured output, that task is marked blocked.
-- Checks are intentionally fixed in code; the API does not accept arbitrary shell commands.
-- Python unit tests execute Python code on your Windows machine. Generated code is not sandboxed, so inspect generated files before running projects you do not trust.
-- The generated `run.cmd` is a convenience launcher, not a security boundary. Double-click it only for projects you trust.
-- Static syntax checks do not prove the app works. The Tester must create meaningful tests, and the user should review the output.
-- The API endpoints added here are read-only for project browsing. File writes and test execution are invoked from the backend workflow, not exposed as unrestricted HTTP commands.
-- No deployment to an external host is included yet.
+- Browse available projects.
+- Select a project and view its files.
+- Open a file to inspect its contents.
+- Review source code, documentation, and test artifacts in one workspace.
 
-## Quick verification after installation
+Previewing a file does not, by itself, prove that the application works correctly.
 
-1. Start the backend and open `/docs`.
-2. Send a build request in a Manager chat, such as `Build me a calculator app`.
-3. Check `GET /projects` for the new project ID.
-4. Check `GET /projects/<project-id>/files` for generated files.
-5. Inspect `playground/<project-id>/run.cmd` before double-clicking it.
-6. Review the Development chat for written file names and the Tester check results.
+### Review and test generated code
+
+The Tester can inspect source files, create a test plan, and run checks available in your local environment. Depending on the project, these may include JavaScript syntax validation and project-specific checks.
+
+**Skipped checks are not passed checks.** For example, if Node.js is not installed or not available on `PATH`, JavaScript syntax validation may be skipped. A written test plan is not evidence that the listed functional tests were executed.
+
+### Work locally
+
+Orbit is designed around a local development workflow, with a Python/FastAPI backend and a browser-based frontend. Generated project files can be kept in your local workspace.
+
+Local execution does not necessarily mean every model request stays on your computer. If you configure a hosted LLM provider, prompts and relevant context may be sent to that provider. Review your configuration before using sensitive data.
+
+## Example projects
+
+You can describe projects in natural language, such as:
+
+- **To-do list:** A responsive task list with add, delete, completion, and browser `localStorage` persistence.
+- **Hotel administration dashboard:** Screens for rooms, guests, bookings, staff, search, and dashboard metrics.
+- **Small web tools:** Frontends built with HTML, CSS, and JavaScript.
+- **Python utilities:** Scripts with supporting documentation and test plans.
+
+These are example tasks, not a guarantee that every generated feature will work without review.
+
+## Typical workflow
+
+1. **Describe the project.** Explain its purpose, required features, and technical preferences.
+2. **Let the Manager coordinate the work.** The workflow delegates tasks to the relevant agent roles.
+3. **Inspect the output.** Open the project in Playground and review its files.
+4. **Run available checks.** Check which tests passed, failed, or were skipped.
+5. **Test the application yourself.** Launch it using the project's instructions and try important user flows.
+6. **Iterate.** Give specific feedback and ask for targeted changes.
+
+## Technology
+
+The current setup discussed for Orbit includes:
+
+- **Frontend:** HTML, CSS, JavaScript
+- **Backend:** Python, FastAPI
+- **Validation/models:** Pydantic
+- **AI integration:** A configurable LLM wrapper and configuration
+- **Workspace:** Local project files and generated artifacts
+
+Exact dependencies, storage details, and startup commands should be confirmed against the current repository.
+
+## Running locally
+
+Use the commands documented in your repository. A typical setup sequence is:
+
+1. Open a terminal in the backend directory.
+2. Activate the project's Python virtual environment.
+3. Install dependencies from the project's dependency file.
+4. Configure the LLM settings required by your `config.py` and `llm.py`.
+5. Start the FastAPI server using the command configured for your project.
+6. Open the frontend using the method configured by your application.
+
+The exact startup command, port, and dependency list are intentionally not guessed here. Add those details from your current repository before publishing this README.
+
+## Limitations to keep in mind
+
+- **Generated code needs review.** Agents can make mistakes or misunderstand requirements.
+- **Test plans are not executed tests.** Confirm which checks actually ran.
+- **Tool availability matters.** Automated checks may be skipped when runtimes such as Node.js are missing.
+- **Features may be incomplete.** Test core user flows, persistence, error handling, and responsive layouts.
+- **Model quality varies.** Results depend on the configured model and its output.
+- **Keep backups.** Commit changes or back up files before accepting large generated edits.
+- **Provider privacy depends on configuration.** A local app may still use a remote model API.
+
+## Suggested extra features
+
+The following are ideas for future improvements, not claims that they already exist:
+
+- **Live agent progress:** Display each agent's phase and current status.
+- **Diff viewer:** Review file changes before accepting them.
+- **Run and preview controls:** Launch generated projects when their runtimes are supported.
+- **Test dashboard:** Separate passed, failed, and skipped checks and show logs.
+- **Dependency detection:** Identify missing tools such as Node.js and explain how to install them.
+- **Project checkpoints:** Compare or restore previous versions.
+- **Agent activity log:** Track delegation, decisions, file writes, and test outcomes.
+- **Project export:** Package a project with its documentation for backup or sharing.
+- **Configurable permissions:** Define file permissions per agent and record which agent changed each file.
+
+## Contributing
+
+1. Back up current files or commit them to version control.
+2. Prefer focused patches over replacing entire modules.
+3. Preserve existing agent roles and prompts unless intentionally changing them.
+4. Run syntax checks and the available test suite.
+5. Report clearly what passed, failed, or could not be tested.
+
+## License
+
+Add the license that applies to this project before publishing or distributing it.
